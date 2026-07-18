@@ -1,796 +1,572 @@
 ﻿# 기술스택 및 GitHub 작업 가이드
 
-## 0. 문서 정보
+## 1. 프로젝트 저장소 구조
 
-
-| 항목    | 내용                                             |
-| ----- | ---------------------------------------------- |
-| 문서명   | 동행가드 기술스택 및 GitHub 작업 가이드                      |
-| 프로젝트명 | 동행가드 DongHaeng Guard                           |
-| 작성 목적 | 앱·관리자 웹·백엔드·AI 파트의 기술스택과 GitHub 협업 방식을 정의      |
-| 기준 문서 | PRD, IA, 화면별 기능 정의서, 화면별 데이터 정의서, API 명세서, ERD |
-| 대상    | 앱 개발, 관리자 웹 개발, 백엔드 개발, AI 분석 파트               |
-| 저장 위치 | `/docs/TECH_GITHUB_GUIDE.md`                   |
-
-
----
-
-# 1. 프로젝트 개발 방향
-
-동행가드는 전동 휠체어 이용자의 이동 중 위험 요소를 센서로 감지하고, 사용자 앱과 관리자 웹을 통해 위험 상태와 위험 구간 데이터를 확인하는 서비스이다.
-
-서비스는 다음 4개 파트로 나누어 개발한다.
-
-
-| 파트    | 역할                                        |
-| ----- | ----------------------------------------- |
-| 사용자 앱 | 센서 연결, 실시간 위험 상태 표시, 위험 알림, 주행 기록 확인      |
-| 관리자 웹 | 위험 이벤트 조회, 위험 구간 지도, 디바이스 상태, AI 분석 결과 관리 |
-| 백엔드   | 사용자, 디바이스, 주행, 위험 이벤트, 위험 구간 데이터 관리       |
-| AI    | 누적 위험 이벤트를 기반으로 위험 구간 점수화 및 등급 산출         |
-
-
----
-
-# 2. 최종 기술스택
-
-## 2.1 사용자 앱
-
-
-| 항목     | 기술                                 |
-| ------ | ---------------------------------- |
-| 개발 도구  | Android Studio                     |
-| 언어     | Kotlin                             |
-| UI     | XML Layout 또는 Jetpack Compose      |
-| 주요 기능  | BLE 연결, GPS 위치 수집, 진동/알림, 위험 상태 표시 |
-| API 통신 | Retrofit                           |
-| 로컬 저장  | SharedPreferences 또는 Room          |
-| 권한 처리  | Android Permission API             |
-
-
-### 선택 이유
-
-동행가드 사용자 앱은 단순 화면 앱이 아니라 BLE 센서 연결, GPS 위치 수집, 위험 알림, 진동/소리 등 네이티브 기능이 중요하다. 따라서 React Native보다 Android Studio 기반 Kotlin 개발이 안정적이다.
-
----
-
-## 2.2 관리자 웹
-
-
-| 항목     | 기술                             |
-| ------ | ------------------------------ |
-| 개발 도구  | VSCode                         |
-| 프레임워크  | React                          |
-| 언어     | TypeScript                     |
-| 빌드 도구  | Vite                           |
-| 스타일    | Tailwind CSS 또는 CSS Modules    |
-| 차트     | Recharts                       |
-| 지도     | Kakao Map API 또는 Naver Map API |
-| API 통신 | Axios                          |
-
-
-### 선택 이유
-
-관리자 웹은 대시보드, 테이블, 필터, 지도, 차트 중심의 화면이므로 React 기반 웹 개발이 적합하다. Figma Make에서 생성한 관리자 웹 코드는 `admin-web` 폴더에 반영한다.
-
----
-
-## 2.3 백엔드
-
-
-| 항목      | 기술                          |
-| ------- | --------------------------- |
-| 개발 도구   | IntelliJ IDEA               |
-| 프레임워크   | Spring Boot                 |
-| 언어      | Java 17                     |
-| DB 연동   | Spring Data JPA             |
-| DB      | MySQL                       |
-| API 문서화 | Swagger / Springdoc OpenAPI |
-| 인증      | MVP: 간편 userId / 확장: JWT    |
-| 빌드 도구   | Gradle                      |
-
-
-### 선택 이유
-
-동행가드 백엔드는 사용자, 디바이스, 주행 세션, 위험 이벤트, 위험 구간 데이터를 안정적으로 관리해야 한다. 관리자 웹과 앱이 함께 사용하는 API 서버이므로 Spring Boot 기반 구조가 적합하다.
-
----
-
-## 2.4 AI 분석 모듈
-
-
-| 항목      | 기술                        |
-| ------- | ------------------------- |
-| 개발 도구   | VSCode                    |
-| 프레임워크   | FastAPI                   |
-| 언어      | Python                    |
-| 데이터 처리  | Pandas                    |
-| 분석 방식   | MVP: 규칙 기반 분석 / 확장: ML 모델 |
-| API 문서화 | FastAPI Swagger UI        |
-
-
-### 선택 이유
-
-AI 파트는 누적된 `risk_events` 데이터를 기반으로 위험 구간을 분석하고, `riskScore`, `riskGrade`, `reason`을 생성하는 역할이다. Python 기반 분석이 필요하므로 FastAPI를 별도 AI 모듈로 구성한다.
-
----
-
-# 3. GitHub 저장소 구조
-
-동행가드는 GitHub 저장소를 파트별로 여러 개 만들지 않고, 하나의 저장소 안에서 폴더를 나누는 방식으로 관리한다.
-
-## 3.1 저장소명
-
-```
-donghaeng-guard
-
-```
-
-## 3.2 최상위 폴더 구조
+동행가드 프로젝트는 하나의 GitHub 저장소 안에서 앱, 관리자 웹, 백엔드, AI, 문서를 함께 관리하는 **monorepo 구조**로 운영한다.
 
 ```
 donghaeng-guard/
-├─ app/                  # 사용자용 Android 앱
-├─ admin-web/             # 관리자용 React 웹
-├─ backend/               # Spring Boot 백엔드
-├─ ai/                    # FastAPI AI 분석 모듈
-├─ docs/                  # 기획/설계 문서
+├─ app/          # 사용자용 Android 앱
+├─ admin-web/    # 관리자용 React 웹
+├─ backend/      # Spring Boot 백엔드
+├─ ai/           # FastAPI AI 분석 모듈
+├─ docs/         # PRD, IA, API 명세, ERD 등 문서
 ├─ README.md
 └─ .gitignore
 
 ```
 
----
-
-# 4. 파트별 작업 도구
+각 담당자는 본인이 맡은 폴더를 중심으로 작업한다.
 
 
-| 파트    | 작업 폴더        | 사용 도구                    |
-| ----- | ------------ | ------------------------ |
-| 사용자 앱 | `/app`       | Android Studio           |
-| 관리자 웹 | `/admin-web` | VSCode                   |
-| 백엔드   | `/backend`   | IntelliJ IDEA 또는 VSCode  |
-| AI    | `/ai`        | VSCode                   |
-| 문서    | `/docs`      | Notion, Markdown, GitHub |
-
-
-각 팀원은 GitHub 저장소 전체를 clone하되, 실제 작업은 본인 파트 폴더만 열어서 진행한다.
-
----
-
-# 5. docs 폴더 구성
-
-```
-docs/
-├─ 01_PRD.md
-├─ 02_IA_APP.md
-├─ 03_IA_ADMIN_WEB.md
-├─ 04_SCREEN_FUNCTION_DEFINITION.md
-├─ 05_SCREEN_DATA_DEFINITION.md
-├─ 06_API_MAPPING.md
-├─ 07_API_SPEC.md
-├─ 08_ERD.md
-├─ 09_COLOR_SYSTEM.md
-└─ 10_PROTOTYPE_LINKS.md
-
-```
-
-문서 흐름은 다음 순서로 관리한다.
-
-```
-PRD
-→ IA
-→ 화면별 기능 정의서
-→ 화면별 데이터 정의서
-→ API Mapping
-→ API 명세서
-→ ERD
-→ 구현
-
-```
-
----
-
-# 6. 사용자 앱 폴더 구조
-
-```
-app/
-├─ app/
-│  └─ src/
-│     └─ main/
-│        ├─ java/com/donghaengguard/
-│        │  ├─ ui/
-│        │  │  ├─ onboarding/
-│        │  │  ├─ sensor/
-│        │  │  ├─ driving/
-│        │  │  ├─ records/
-│        │  │  ├─ riskzone/
-│        │  │  └─ settings/
-│        │  │
-│        │  ├─ data/
-│        │  │  ├─ api/
-│        │  │  ├─ model/
-│        │  │  ├─ repository/
-│        │  │  └─ local/
-│        │  │
-│        │  ├─ ble/
-│        │  ├─ location/
-│        │  ├─ notification/
-│        │  ├─ common/
-│        │  └─ MainActivity.kt
-│        │
-│        ├─ res/
-│        │  ├─ layout/
-│        │  ├─ drawable/
-│        │  ├─ values/
-│        │  └─ mipmap/
-│        │
-│        └─ AndroidManifest.xml
-│
-├─ build.gradle
-└─ README.md
-
-```
-
-## 사용자 앱 주요 화면
-
-
-| 폴더         | 화면                           |
-| ---------- | ---------------------------- |
-| onboarding | 온보딩 / 권한 안내                  |
-| sensor     | 센서 연결 화면                     |
-| driving    | 메인 주행 화면, 위험 알림 화면, 주행 종료 화면 |
-| records    | 주행 기록 목록, 주행 상세              |
-| riskzone   | 위험 구간 지도, 위험 구간 상세           |
-| settings   | 디바이스, 알림, 접근성 설정             |
+| 담당 영역    | 작업 폴더        |
+| -------- | ------------ |
+| 사용자 앱    | `app/`       |
+| 관리자 웹    | `admin-web/` |
+| 백엔드      | `backend/`   |
+| AI 서버    | `ai/`        |
+| 기획/설계 문서 | `docs/`      |
 
 
 ---
 
-# 7. 관리자 웹 폴더 구조
+## 2. 브랜치 운영 방식
+
+본 프로젝트는 `main`, `dev`, `feature` 브랜치를 구분하여 사용한다.
+
+
+| 브랜치         | 용도                |
+| ----------- | ----------------- |
+| `main`      | 최종 안정 버전, 제출용 브랜치 |
+| `dev`       | 개발 통합 브랜치         |
+| `feature/*` | 각자 기능 개발 브랜치      |
+
+
+### 기본 원칙
 
 ```
-admin-web/
-├─ src/
-│  ├─ pages/
-│  │  ├─ login/
-│  │  ├─ dashboard/
-│  │  ├─ risk-events/
-│  │  ├─ risk-zones/
-│  │  ├─ trips/
-│  │  ├─ devices/
-│  │  ├─ ai/
-│  │  ├─ reports/
-│  │  └─ settings/
-│  │
-│  ├─ components/
-│  │  ├─ layout/
-│  │  ├─ cards/
-│  │  ├─ tables/
-│  │  ├─ badges/
-│  │  ├─ charts/
-│  │  └─ map/
-│  │
-│  ├─ services/
-│  │  └─ api/
-│  │
-│  ├─ types/
-│  ├─ constants/
-│  ├─ mocks/
-│  ├─ App.tsx
-│  └─ main.tsx
-│
-├─ package.json
-└─ README.md
+main에 직접 push 금지
+dev에서 feature 브랜치를 생성
+feature 브랜치에서 작업
+작업 완료 후 dev로 Pull Request 생성
+dev에서 테스트 후 안정화되면 main으로 병합
 
 ```
 
-## 관리자 웹 주요 화면
+작업 흐름은 다음과 같다.
 
+```
+dev
+└─ feature/작업명
+   └─ 작업 완료 후 PR
+      └─ dev 병합
+         └─ 최종 안정화 후 main 병합
 
-| 폴더          | 화면            |
-| ----------- | ------------- |
-| dashboard   | 전체 위험 현황 대시보드 |
-| risk-events | 위험 이벤트 목록/상세  |
-| risk-zones  | 위험 구간 지도/상세   |
-| trips       | 주행 기록 관리      |
-| devices     | 디바이스 관리       |
-| ai          | AI 분석 결과      |
-| reports     | 리포트/통계        |
-| settings    | 관리자 설정        |
-
+```
 
 ---
 
-# 8. 백엔드 폴더 구조
+## 3. 작업 시작 전 필수 명령어
 
-```
-backend/
-├─ src/
-│  └─ main/
-│     ├─ java/com/donghaengguard/
-│     │  ├─ DonghaengGuardApplication.java
-│     │  │
-│     │  ├─ global/
-│     │  │  ├─ config/
-│     │  │  ├─ exception/
-│     │  │  ├─ response/
-│     │  │  └─ security/
-│     │  │
-│     │  ├─ common/
-│     │  │  ├─ enums/
-│     │  │  └─ constants/
-│     │  │
-│     │  └─ domain/
-│     │     ├─ user/
-│     │     ├─ admin/
-│     │     ├─ device/
-│     │     ├─ trip/
-│     │     ├─ riskevent/
-│     │     ├─ riskzone/
-│     │     └─ ai/
-│     │
-│     └─ resources/
-│        ├─ application.yml
-│        ├─ application-local.yml
-│        └─ db/
-│           ├─ schema.sql
-│           └─ data.sql
-│
-├─ build.gradle
-└─ README.md
+작업을 시작하기 전에는 항상 `dev` 브랜치를 최신 상태로 맞춘다.
+
+```bash
+git checkout dev
+git pull origin dev
 
 ```
 
-## 백엔드 도메인 구조
+그다음 본인 작업 브랜치를 생성한다.
 
-각 도메인은 아래 구조를 따른다.
+```bash
+git checkout -b feature/작업명
 
 ```
-controller/
-service/
-repository/
-dto/
-entity/
+
+예시:
+
+```bash
+git checkout -b feature/backend-login
+git checkout -b feature/app-sensor
+git checkout -b feature/admin-web-dashboard
+git checkout -b feature/ai-risk-analysis
+
+```
+
+---
+
+## 4. 브랜치 이름 규칙
+
+브랜치 이름은 아래 규칙을 따른다.
+
+```
+feature/파트-작업내용
 
 ```
 
 예시:
 
 ```
-domain/riskevent/
-├─ controller/
-│  └─ RiskEventController.java
-├─ service/
-│  └─ RiskEventService.java
-├─ repository/
-│  └─ RiskEventRepository.java
-├─ dto/
-│  ├─ RiskEventCreateRequest.java
-│  ├─ RiskEventResponse.java
-│  └─ RiskEventListResponse.java
-└─ entity/
-   └─ RiskEvent.java
+feature/app-sensor
+feature/app-trip-record
+feature/admin-web-dashboard
+feature/admin-web-risk-events
+feature/backend-risk-event-api
+feature/backend-device-api
+feature/ai-risk-analysis
+feature/docs-api-update
+
+```
+
+개인 이름을 붙여야 할 경우 다음처럼 작성할 수 있다.
+
+```
+feature/admin-web-layout-yunseo
+feature/backend-api-hyewon
+feature/ai-model-juhyun
 
 ```
 
 ---
 
-# 9. AI 폴더 구조
+## 5. 작업 후 커밋 및 푸시
 
-```
-ai/
-├─ app/
-│  ├─ main.py
-│  ├─ routers/
-│  │  └─ risk_zone_router.py
-│  ├─ schemas/
-│  │  ├─ risk_event_schema.py
-│  │  └─ risk_zone_schema.py
-│  ├─ services/
-│  │  └─ risk_zone_service.py
-│  ├─ models/
-│  └─ utils/
-│
-├─ requirements.txt
-└─ README.md
-
-```
-
-## AI 처리 흐름
-
-```
-백엔드에서 risk_events 데이터 제공
-→ AI 모듈이 위험 구간 분석
-→ riskScore, riskGrade, reason 생성
-→ 백엔드에 risk_zones 결과 전달
-→ 앱/관리자 웹에서 위험 구간 조회
-
-```
-
----
-
-# 10. Git 브랜치 전략
-
-## 10.1 기본 브랜치
-
-
-| 브랜치       | 역할                 |
-| --------- | ------------------ |
-| main      | 최종 제출용 안정 버전       |
-| dev       | 개발 통합 브랜치          |
-| feature/* | 각 기능 또는 파트별 작업 브랜치 |
-
-
-## 10.2 추천 브랜치 구조
-
-```
-main
-└─ dev
-   ├─ feature/docs-init
-   ├─ feature/project-structure
-   ├─ feature/app-init
-   ├─ feature/admin-web-init
-   ├─ feature/backend-init
-   ├─ feature/ai-init
-   ├─ feature/api-trip
-   ├─ feature/api-risk-event
-   ├─ feature/api-risk-zone
-   └─ feature/integration
-
-```
-
----
-
-# 11. GitHub 작업 순서
-
-## 11.1 최초 세팅
+작업한 파일을 확인한다.
 
 ```bash
-git clone 저장소주소
-cd donghaeng-guard
-
-git checkout -b dev
-git push origin dev
-
-git checkout -b feature/project-structure
+git status
 
 ```
 
-폴더 생성:
-
-```bash
-mkdir app admin-web backend ai docs
-touch README.md
-touch .gitignore
-
-```
-
-커밋:
+변경사항을 추가한다.
 
 ```bash
 git add .
-git commit -m "chore: initialize project structure"
-git push origin feature/project-structure
 
 ```
 
-GitHub에서 Pull Request 생성:
-
-```
-feature/project-structure → dev
-
-```
-
----
-
-# 12. 파트별 작업 방식
-
-## 12.1 앱 개발자
+커밋한다.
 
 ```bash
-git checkout dev
-git pull origin dev
-git checkout -b feature/app-init
+git commit -m "커밋 메시지"
 
 ```
 
-작업 폴더:
-
-```
-/app
-
-```
-
-작업 내용:
-
-```
-- Android Studio 프로젝트 생성
-- 권한 안내 화면
-- 센서 연결 화면
-- 메인 주행 화면
-- 위험 알림 화면
-- mock 데이터 기반 주행 기록 화면
-
-```
-
----
-
-## 12.2 관리자 웹 개발자
+원격 브랜치에 푸시한다.
 
 ```bash
-git checkout dev
-git pull origin dev
-git checkout -b feature/admin-web-init
+git push -u origin feature/브랜치명
 
 ```
 
-작업 폴더:
-
-```
-/admin-web
-
-```
-
-작업 내용:
-
-```
-- React + TypeScript + Vite 프로젝트 생성
-- Figma Make 코드 반영
-- 대시보드 화면 구성
-- 위험 이벤트 목록/상세 화면 구성
-- 위험 구간 지도 화면 구성
-- mock 데이터 연결
-
-```
-
----
-
-## 12.3 백엔드 개발자
+이미 한 번 푸시한 브랜치라면 다음부터는 아래 명령어만 사용해도 된다.
 
 ```bash
-git checkout dev
-git pull origin dev
-git checkout -b feature/backend-init
-
-```
-
-작업 폴더:
-
-```
-/backend
-
-```
-
-작업 내용:
-
-```
-- Spring Boot 프로젝트 생성
-- Entity 생성
-- Repository 생성
-- 공통 응답 형식 생성
-- P0 API 더미 응답 구현
-- DB 연결
-- 실제 저장 로직 구현
+git push
 
 ```
 
 ---
 
-## 12.4 AI 개발자
+## 6. 커밋 메시지 규칙
+
+커밋 메시지는 아래 형식을 권장한다.
+
+```
+타입: 작업 내용
+
+```
+
+
+| 타입         | 의미         | 예시                                     |
+| ---------- | ---------- | -------------------------------------- |
+| `feat`     | 새로운 기능 추가  | `feat: add risk event table`           |
+| `fix`      | 오류 수정      | `fix: update import path`              |
+| `docs`     | 문서 수정      | `docs: update api spec`                |
+| `style`    | UI, 스타일 수정 | `style: update dashboard color`        |
+| `refactor` | 코드 구조 개선   | `refactor: split dashboard components` |
+| `chore`    | 설정, 초기 세팅  | `chore: initialize admin web project`  |
+
+
+예시:
 
 ```bash
-git checkout dev
-git pull origin dev
-git checkout -b feature/ai-init
-
-```
-
-작업 폴더:
-
-```
-/ai
-
-```
-
-작업 내용:
-
-```
-- FastAPI 프로젝트 생성
-- 위험 이벤트 입력 스키마 정의
-- 위험 구간 분석 로직 작성
-- riskScore, riskGrade 산출
-- 분석 결과 응답 형식 정의
+git commit -m "feat: add admin dashboard layout"
+git commit -m "fix: resolve package import error"
+git commit -m "docs: update ERD document"
+git commit -m "chore: initialize backend project"
 
 ```
 
 ---
 
-# 13. 합치는 순서
+## 7. Pull Request 규칙
+
+작업이 끝나면 GitHub에서 Pull Request를 생성한다.
+
+PR 방향은 반드시 다음과 같이 설정한다.
 
 ```
-1. feature/docs-init → dev
-2. feature/project-structure → dev
-3. feature/app-init → dev
-4. feature/admin-web-init → dev
-5. feature/backend-init → dev
-6. feature/ai-init → dev
-7. feature/api-trip → dev
-8. feature/api-risk-event → dev
-9. feature/api-risk-zone → dev
-10. feature/integration → dev
-11. dev 테스트 완료 후 dev → main
+base: dev
+compare: feature/작업브랜치
 
 ```
 
-`main`에는 직접 작업하지 않는다.
+### 올바른 PR 예시
 
-최종 발표나 제출 가능한 안정 버전만 `main`에 반영한다.
+```
+feature/admin-web-dashboard → dev
+feature/backend-risk-api → dev
+feature/app-sensor → dev
+feature/ai-risk-analysis → dev
+
+```
+
+### 잘못된 PR 예시
+
+```
+feature/작업브랜치 → main
+dev → main
+main → dev
+
+```
+
+`main`은 최종 제출용 브랜치이므로 일반 개발 작업을 바로 병합하지 않는다.
 
 ---
 
-# 14. 프론트-백엔드 협업 기준
+## 8. PR 작성 양식
 
-## 14.1 반드시 맞출 값
+Pull Request 작성 시 아래 양식을 사용한다.
 
-
-| 항목        | 기준                               |
-| --------- | -------------------------------- |
-| API 응답 형식 | `success`, `data`, `message`     |
-| 위험 단계     | SAFE / WARNING / DANGER          |
-| 위험 등급     | LOW / MEDIUM / HIGH              |
-| 센서 종류     | TOF / ULTRASONIC                 |
-| 디바이스 상태   | CONNECTED / DISCONNECTED / ERROR |
-| 주행 상태     | STARTED / ENDED                  |
-| 거리 단위     | mm                               |
-| 날짜 형식     | ISO 형식                           |
-| 좌표        | latitude / longitude             |
-
-
----
-
-## 14.2 프론트 작업 방식
-
-프론트는 백엔드 API가 완성되기 전까지 mock 데이터를 사용한다.
-
-```
-mocks
-→ services
-→ pages
-
-```
-
-화면 안에 더미 데이터를 직접 작성하지 않고, 반드시 `mocks` 또는 `services`에서 불러오는 구조로 만든다.
-
----
-
-## 14.3 백엔드 작업 방식
-
-백엔드는 처음부터 모든 DB 로직을 완성하지 않고, P0 API부터 더미 응답을 제공한다.
-
-```
-더미 응답
-→ DB 연결
-→ 실제 저장 로직
-→ 예외 처리
-→ Swagger 문서화
-
-```
-
----
-
-# 15. P0 우선 구현 API
-
-## 사용자 앱 API
-
-```
-POST /api/trips/start
-PATCH /api/trips/{tripId}/end
-GET /api/trips/{tripId}/status
-GET /api/trips/{tripId}/summary
-POST /api/risk-events
-
-```
-
-## 관리자 웹 API
-
-```
-POST /api/admin/auth/login
-GET /api/admin/dashboard/summary
-GET /api/admin/risk-events
-GET /api/admin/risk-events/{eventId}
-GET /api/admin/risk-zones/map
-
-```
-
-## AI 연동 API
-
-```
-GET /internal/ai/data
-POST /internal/ai/result
-
-```
-
----
-
-# 16. 커밋 메시지 규칙
-
-
-| 타입       | 의미        | 예시                                   |
-| -------- | --------- | ------------------------------------ |
-| feat     | 기능 추가     | feat: add risk event list page       |
-| fix      | 오류 수정     | fix: correct risk level badge color  |
-| docs     | 문서 수정     | docs: update API specification       |
-| chore    | 설정/구조 작업  | chore: initialize backend structure  |
-| refactor | 코드 구조 개선  | refactor: separate api service logic |
-| style    | UI/CSS 수정 | style: update dashboard card layout  |
-| test     | 테스트 코드    | test: add risk event api test        |
-
-
----
-
-# 17. Pull Request 규칙
-
-PR 제목 예시:
-
-```
-[APP] 센서 연결 화면 초기 구현
-[ADMIN] 위험 이벤트 목록 화면 구현
-[BE] 주행 시작 API 구현
-[AI] 위험 구간 분석 로직 초안
-[DOCS] API 명세서 업데이트
-
-```
-
-PR에는 아래 내용을 작성한다.
-
-```
+```markdown
 ## 작업 내용
--
+- 작업한 내용을 bullet 형식으로 작성
 
-## 확인한 내용
--
+## 확인 내용
+- 실행 확인 여부
+- 테스트 확인 여부
+- 화면 확인 여부
 
-## 관련 문서
--
+## 참고 사항
+- 팀원이 확인해야 할 내용
+- 아직 미완성인 부분
+- 추후 작업 예정 내용
 
-## 다음 작업
--
+```
+
+예시:
+
+```markdown
+## 작업 내용
+- 관리자 웹 대시보드 레이아웃 구현
+- 위험 이벤트 테이블 UI 추가
+- 동행가드 컬러 시스템 반영
+- mock data 기반 화면 구성
+
+## 확인 내용
+- npm install 정상 실행
+- npm run dev 정상 실행
+- 브라우저에서 관리자 웹 화면 확인
+
+## 참고 사항
+- 현재 백엔드 API는 연결하지 않고 mock data 사용
+- 추후 risk-events API 완성 후 연동 예정
 
 ```
 
 ---
 
-# 18. 최종 개발 흐름
+## 9. 작업 시 주의사항
+
+### 1. main 직접 작업 금지
+
+`main` 브랜치에서는 직접 수정하지 않는다.
+
+```bash
+git checkout main
 
 ```
-기획 문서 정리
-→ GitHub 저장소 생성
-→ app / admin-web / backend / ai / docs 폴더 분리
-→ 각 파트별 초기 프로젝트 생성
-→ mock 데이터 기반 화면 구현
-→ P0 API 더미 응답 연결
-→ DB 저장 로직 구현
-→ AI 분석 결과 연동
-→ 앱/웹 통합 테스트
-→ dev 안정화
-→ main 최종 반영
+
+상태에서 작업하지 않도록 주의한다.
+
+### 2. 작업 전 dev 최신화
+
+항상 작업 시작 전에 아래 명령어를 실행한다.
+
+```bash
+git checkout dev
+git pull origin dev
+
+```
+
+### 3. 각자 담당 폴더 중심으로 작업
+
+충돌을 줄이기 위해 본인이 맡은 폴더 중심으로 수정한다.
+
+```
+앱 담당: app/
+관리자 웹 담당: admin-web/
+백엔드 담당: backend/
+AI 담당: ai/
+문서 담당: docs/
+
+```
+
+공통 파일을 수정해야 할 경우 팀원에게 먼저 공유한다.
+
+공통 파일 예시:
+
+```
+README.md
+.gitignore
+docs/
+package 관련 파일
+환경설정 파일
+
+```
+
+### 4. node_modules 업로드 금지
+
+`node_modules/`는 GitHub에 올리지 않는다.
+
+필요한 패키지는 `package.json`과 `package-lock.json`으로 관리한다.
+
+### 5. .env 업로드 금지
+
+API Key, DB 비밀번호, 토큰 등이 들어간 `.env` 파일은 절대 GitHub에 올리지 않는다.
+
+예시:
+
+```
+.env
+.env.local
+application-secret.yml
+
+```
+
+필요한 경우 `.env.example` 파일을 만들어 형식만 공유한다.
+
+---
+
+## 10. 충돌 발생 시 처리
+
+Pull Request 또는 merge 중 충돌이 발생하면 혼자 무리해서 해결하지 않고 팀원에게 공유한다.
+
+충돌 가능성이 높은 상황:
+
+```
+같은 파일을 여러 명이 수정한 경우
+README.md를 동시에 수정한 경우
+docs 문서를 동시에 수정한 경우
+package.json을 동시에 수정한 경우
+
+```
+
+충돌이 발생하면 다음 정보를 공유한다.
+
+```
+1. 충돌 난 브랜치 이름
+2. 충돌 난 파일 이름
+3. 어떤 작업을 하던 중이었는지
+4. 에러 메시지 또는 GitHub 화면 캡처
 
 ```
 
 ---
 
-# 19. 최종 요약
+## 11. 관리자 웹 실행 방법
 
-동행가드는 하나의 GitHub 저장소에서 관리하되, 파트별로 폴더를 분리한다.
+관리자 웹은 `admin-web/` 폴더에서 실행한다.
 
-```
-app = Android Studio Kotlin 사용자 앱
-admin-web = React TypeScript 관리자 웹
-backend = Spring Boot API 서버
-ai = FastAPI 위험 구간 분석 모듈
-docs = PRD, IA, API 명세, ERD 문서
+```bash
+cd admin-web
+npm install
+npm run dev
 
 ```
 
-작업은 각자 feature 브랜치에서 진행하고, `dev`에서 통합 후 최종 안정 버전만 `main`에 반영한다.
+브라우저에서 아래 주소로 접속한다.
+
+```
+<http://localhost:5173/>
+
+```
+
+필요한 패키지가 추가되었을 경우 다음 명령어로 설치한다.
+
+```bash
+npm install
+
+```
+
+특정 패키지를 추가해야 할 경우:
+
+```bash
+npm install 패키지명
+
+```
+
+예시:
+
+```bash
+npm install lucide-react recharts sonner
+
+```
+
+---
+
+## 12. 현재 관리자 웹 작업 기준
+
+관리자 웹은 현재 다음 기준으로 작업한다.
+
+```
+Framework: React
+Language: TypeScript
+Build Tool: Vite
+Data: mock data 우선 사용
+API: 백엔드 완성 후 연동
+Design: Figma Make 기반
+Color System: 동행가드 컬러 시스템 적용
+
+```
+
+관리자 웹 주요 화면:
+
+```
+Dashboard
+위험 이벤트
+위험 구간
+주행 기록
+디바이스
+AI 분석
+리포트
+설정
+
+```
+
+---
+
+## 13. 백엔드 / AI 연동 기준
+
+앱과 관리자 웹은 FastAPI를 직접 호출하지 않는다.
+
+기본 구조는 다음과 같다.
+
+```
+사용자 앱 / 관리자 웹
+        ↓
+Spring Boot 백엔드
+        ↓
+DB 저장 및 조회
+        ↓
+필요 시 FastAPI AI 서버 내부 호출
+
+```
+
+FastAPI AI 서버는 AI 분석 전용 모듈로 사용한다.
+
+예시:
+
+```
+앱 → Spring Boot → DB
+관리자 웹 → Spring Boot → DB
+Spring Boot → FastAPI → AI 분석 결과 반환 → DB 저장
+
+```
+
+---
+
+## 14. 개발 전 팀원 확인 사항
+
+개발 전 아래 내용을 팀원 간에 확정한다.
+
+```
+1. 백엔드 DB 구조와 docs/08_ERD.md 일치 여부
+2. API 명세서와 실제 백엔드 API 경로 일치 여부
+3. 앱에서 전송할 센서 데이터 형식
+4. 위험 단계 SAFE / WARNING / DANGER 기준
+5. AI 서버 입력값과 반환값
+6. 관리자 웹 mock data와 실제 API 응답 구조
+7. 각자 담당 폴더 및 브랜치 이름
+
+```
+
+---
+
+## 15. 작업 예시
+
+### 백엔드 작업 예시
+
+```bash
+git checkout dev
+git pull origin dev
+git checkout -b feature/backend-risk-event-api
+
+# backend 폴더에서 작업
+
+git status
+git add .
+git commit -m "feat: add risk event api"
+git push -u origin feature/backend-risk-event-api
+
+```
+
+PR 생성:
+
+```
+base: dev
+compare: feature/backend-risk-event-api
+
+```
+
+### 관리자 웹 작업 예시
+
+```bash
+git checkout dev
+git pull origin dev
+git checkout -b feature/admin-web-risk-events
+
+# admin-web 폴더에서 작업
+
+cd admin-web
+npm install
+npm run dev
+
+```
+
+작업 완료 후:
+
+```bash
+cd ..
+git status
+git add .
+git commit -m "feat: add risk event page"
+git push -u origin feature/admin-web-risk-events
+
+```
+
+PR 생성:
+
+```
+base: dev
+compare: feature/admin-web-risk-events
+
+```
+
+---
+
+## 16. 핵심 요약
+
+```
+main은 최종 제출용
+dev는 개발 통합용
+각자 feature 브랜치에서 작업
+PR은 dev로 올리기
+main 직접 push 금지
+작업 전 dev pull 필수
+담당 폴더 중심으로 작업
+충돌 발생 시 팀원에게 공유
+
+```
+
