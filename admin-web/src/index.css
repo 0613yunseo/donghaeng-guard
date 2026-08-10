@@ -1,0 +1,48 @@
+@import url("https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700;800&display=swap");
+@import "./styles/globals.css";
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+}
+
+body {
+  font-family: "Noto Sans KR", "Inter", system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+button {
+  cursor: pointer;
+  font-family: inherit;
+  border: none;
+  background: none;
+  padding: 0;
+}
+
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
