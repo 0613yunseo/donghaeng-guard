@@ -35,6 +35,7 @@ public class RiskEventService {
                 .riskType(request.getRiskType())
                 .riskLevel(RiskEvent.RiskLevel.valueOf(request.getRiskLevel()))
                 .distanceMm(request.getDistanceMm())
+                .angleDeg(request.getAngleDeg())
                 .latitude(request.getLatitude())
                 .longitude(request.getLongitude())
                 .detectedAt(request.getDetectedAt())

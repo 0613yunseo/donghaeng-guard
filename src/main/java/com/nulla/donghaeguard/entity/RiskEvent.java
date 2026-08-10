@@ -28,14 +28,15 @@ public class RiskEvent {
     @Column(nullable = false)
     private SensorType sensorType;
 
-    private String riskType;  // OBSTACLE, STEP 등
+    private String riskType;  // OBSTACLE, STEP, SLOPE 등
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private RiskLevel riskLevel;
 
-    @Column(nullable = false)
-    private Integer distanceMm;
+    private Integer distanceMm;  // 초음파/TOF 이벤트용, TILT 이벤트는 null
+
+    private Double angleDeg;     // TILT 이벤트용 기울기 각도, 그 외는 null
 
     @Column(nullable = false)
     private Double latitude;
@@ -47,7 +48,7 @@ public class RiskEvent {
     private LocalDateTime detectedAt;
 
     public enum SensorType {
-        TOF, ULTRASONIC
+        TOF, ULTRASONIC, TILT
     }
 
     public enum RiskLevel {
