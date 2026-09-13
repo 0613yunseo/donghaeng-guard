@@ -56,97 +56,104 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-// ══════════════════════════════════════════════════════════
-// 색상 시스템
-// ══════════════════════════════════════════════════════════
 object AppColors {
-    val Background      = Color(0xFFF8FAFC)
-    val CardBackground  = Color(0xFFFFFFFF)
-    val Primary         = Color(0xFF2563EB)
-    val PrimaryLight    = Color(0xFFDBEAFE)
-    val OnPrimary       = Color(0xFFFFFFFF)
-    val Surface         = Color(0xFFF1F5F9)
-    val TextPrimary     = Color(0xFF111827)
-    val TextSecondary   = Color(0xFF6B7280)
-    val Border          = Color(0xFFE5E7EB)
+    val Background = Color(0xFFF8FAFC)
+    val CardBackground = Color(0xFFFFFFFF)
+    val Primary = Color(0xFF2563EB)
+    val PrimaryLight = Color(0xFFDBEAFE)
+    val OnPrimary = Color(0xFFFFFFFF)
+    val Surface = Color(0xFFF1F5F9)
+    val TextPrimary = Color(0xFF111827)
+    val TextSecondary = Color(0xFF6B7280)
+    val Border = Color(0xFFE5E7EB)
 
-    val Safe            = Color(0xFF22C55E)
-    val SafeBg          = Color(0xFFDCFCE7)
-    val Warning         = Color(0xFFF59E0B)
-    val WarningBg       = Color(0xFFFEF3C7)
-    val Danger          = Color(0xFFEF4444)
-    val DangerBg        = Color(0xFFFEE2E2)
+    val Safe = Color(0xFF22C55E)
+    val SafeBg = Color(0xFFDCFCE7)
+    val Warning = Color(0xFFF59E0B)
+    val WarningBg = Color(0xFFFEF3C7)
+    val Danger = Color(0xFFEF4444)
+    val DangerBg = Color(0xFFFEE2E2)
 }
 
-// ══════════════════════════════════════════════════════════
-// 화면 정의 (remember 상태 기반 내비게이션)
-// ══════════════════════════════════════════════════════════
 sealed class Screen {
-    object Home    : Screen()
+    object Home : Screen()
+    object SensorConnection : Screen()
     object Driving : Screen()
     object History : Screen()
 }
 
-// ══════════════════════════════════════════════════════════
-// 위험 단계 모델
-// ══════════════════════════════════════════════════════════
-enum class RiskLevel { SAFE, WARNING, DANGER }
+enum class RiskLevel {
+    SAFE, WARNING, DANGER
+}
 
 data class RiskUiState(
-    val level:           RiskLevel,
-    val emoji:           String,
-    val label:           String,
-    val description:     String,
-    val color:           Color,
+    val level: RiskLevel,
+    val emoji: String,
+    val label: String,
+    val description: String,
+    val color: Color,
     val backgroundColor: Color,
-    val borderColor:     Color,
+    val borderColor: Color
 )
 
 fun riskUiState(level: RiskLevel): RiskUiState = when (level) {
-    RiskLevel.SAFE    -> RiskUiState(level, "🛡", "안전",
-        "현재 주행 상태가 안전합니다",
-        AppColors.Safe,    AppColors.SafeBg,    AppColors.Safe)
-    RiskLevel.WARNING -> RiskUiState(level, "⚠",  "주의",
-        "전방에 주의가 필요합니다",
-        AppColors.Warning, AppColors.WarningBg, AppColors.Warning)
-    RiskLevel.DANGER  -> RiskUiState(level, "!",  "위험",
-        "속도를 줄이고 전방을 확인하세요",
-        AppColors.Danger,  AppColors.DangerBg,  AppColors.Danger)
+    RiskLevel.SAFE -> RiskUiState(
+        level = level,
+        emoji = "🛡",
+        label = "안전",
+        description = "현재 주행 상태가 안전합니다",
+        color = AppColors.Safe,
+        backgroundColor = AppColors.SafeBg,
+        borderColor = AppColors.Safe
+    )
+
+    RiskLevel.WARNING -> RiskUiState(
+        level = level,
+        emoji = "⚠",
+        label = "주의",
+        description = "전방에 주의가 필요합니다",
+        color = AppColors.Warning,
+        backgroundColor = AppColors.WarningBg,
+        borderColor = AppColors.Warning
+    )
+
+    RiskLevel.DANGER -> RiskUiState(
+        level = level,
+        emoji = "!",
+        label = "위험",
+        description = "속도를 줄이고 전방을 확인하세요",
+        color = AppColors.Danger,
+        backgroundColor = AppColors.DangerBg,
+        borderColor = AppColors.Danger
+    )
 }
 
-// ══════════════════════════════════════════════════════════
-// 목 데이터
-// ══════════════════════════════════════════════════════════
 data class TripRecord(
-    val id:            String,
-    val date:          String,
-    val timeRange:     String,
-    val duration:      String,
-    val dangerCount:   Int,
-    val warningCount:  Int,
-    val maxRiskLevel:  RiskLevel,
+    val id: String,
+    val date: String,
+    val timeRange: String,
+    val duration: String,
+    val dangerCount: Int,
+    val warningCount: Int,
+    val maxRiskLevel: RiskLevel
 )
 
 val mockTripHistory = listOf(
-    TripRecord("1", "2026년 5월 28일", "14:30 - 15:45", "1시간 15분", 3,  8, RiskLevel.DANGER),
-    TripRecord("2", "2026년 5월 27일", "10:20 - 11:05", "45분",       1,  4, RiskLevel.DANGER),
-    TripRecord("3", "2026년 5월 26일", "16:00 - 16:30", "30분",       0,  2, RiskLevel.WARNING),
-    TripRecord("4", "2026년 5월 25일", "09:00 - 09:40", "40분",       0,  0, RiskLevel.SAFE),
+    TripRecord("1", "2026년 5월 28일", "14:30 - 15:45", "1시간 15분", 3, 8, RiskLevel.DANGER),
+    TripRecord("2", "2026년 5월 27일", "10:20 - 11:05", "45분", 1, 4, RiskLevel.DANGER),
+    TripRecord("3", "2026년 5월 26일", "16:00 - 16:30", "30분", 0, 2, RiskLevel.WARNING),
+    TripRecord("4", "2026년 5월 25일", "09:00 - 09:40", "40분", 0, 0, RiskLevel.SAFE)
 )
 
-// ══════════════════════════════════════════════════════════
-// MainActivity
-// ══════════════════════════════════════════════════════════
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { DongHaengGuardApp() }
+        setContent {
+            DongHaengGuardApp()
+        }
     }
 }
 
-// ══════════════════════════════════════════════════════════
-// 앱 루트 — 화면 전환 상태 관리
-// ══════════════════════════════════════════════════════════
 @Composable
 fun DongHaengGuardApp() {
     var currentScreen by remember { mutableStateOf<Screen>(Screen.Home) }
@@ -157,15 +164,21 @@ fun DongHaengGuardApp() {
             bottomBar = {
                 BottomNavBar(
                     currentScreen = currentScreen,
-                    onNavigate    = { currentScreen = it }
+                    onNavigate = { currentScreen = it }
                 )
             }
         ) { innerPadding ->
             Box(modifier = Modifier.padding(innerPadding)) {
                 when (currentScreen) {
-                    is Screen.Home    -> HomeScreen(
-                        onStartDriving = { currentScreen = Screen.Driving }
+                    is Screen.Home -> HomeScreen(
+                        onStartDriving = { currentScreen = Screen.Driving },
+                        onOpenSensorConnection = { currentScreen = Screen.SensorConnection }
                     )
+
+                    is Screen.SensorConnection -> SensorConnectionScreen(
+                        onBack = { currentScreen = Screen.Home }
+                    )
+
                     is Screen.Driving -> DrivingScreen()
                     is Screen.History -> HistoryScreen()
                 }
@@ -174,31 +187,36 @@ fun DongHaengGuardApp() {
     }
 }
 
-// ══════════════════════════════════════════════════════════
-// 하단 내비게이션 바
-// ══════════════════════════════════════════════════════════
 @Composable
-fun BottomNavBar(currentScreen: Screen, onNavigate: (Screen) -> Unit) {
-    data class NavItem(val screen: Screen, val emoji: String, val label: String)
+fun BottomNavBar(
+    currentScreen: Screen,
+    onNavigate: (Screen) -> Unit
+) {
+    data class NavItem(
+        val screen: Screen,
+        val emoji: String,
+        val label: String
+    )
 
     val items = listOf(
-        NavItem(Screen.Home,    "○",  "홈"),
-        NavItem(Screen.Driving, "▶",  "주행"),
-        NavItem(Screen.History, "☰",  "기록"),
+        NavItem(Screen.Home, "○", "홈"),
+        NavItem(Screen.Driving, "▶", "주행"),
+        NavItem(Screen.History, "☰", "기록")
     )
 
     Surface(
-        color          = AppColors.CardBackground,
+        color = AppColors.CardBackground,
         shadowElevation = 8.dp,
-        modifier       = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth()
     ) {
         Row(
-            modifier                = Modifier.height(64.dp),
-            horizontalArrangement   = Arrangement.SpaceEvenly,
-            verticalAlignment       = Alignment.CenterVertically
+            modifier = Modifier.height(64.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
         ) {
             items.forEach { item ->
                 val selected = currentScreen::class == item.screen::class
+
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -208,18 +226,21 @@ fun BottomNavBar(currentScreen: Screen, onNavigate: (Screen) -> Unit) {
                     verticalArrangement = Arrangement.Center
                 ) {
                     Text(
-                        text       = item.emoji,
-                        fontSize   = 22.sp,
-                        color      = if (selected) AppColors.Primary else AppColors.TextSecondary,
-                        fontWeight = if (selected) FontWeight.Bold   else FontWeight.Normal
+                        text = item.emoji,
+                        fontSize = 22.sp,
+                        color = if (selected) AppColors.Primary else AppColors.TextSecondary,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
                     )
+
                     Spacer(modifier = Modifier.height(2.dp))
+
                     Text(
-                        text       = item.label,
-                        fontSize   = 11.sp,
-                        color      = if (selected) AppColors.Primary else AppColors.TextSecondary,
+                        text = item.label,
+                        fontSize = 11.sp,
+                        color = if (selected) AppColors.Primary else AppColors.TextSecondary,
                         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
                     )
+
                     if (selected) {
                         Spacer(modifier = Modifier.height(2.dp))
                         Box(
@@ -235,286 +256,381 @@ fun BottomNavBar(currentScreen: Screen, onNavigate: (Screen) -> Unit) {
     }
 }
 
-// ══════════════════════════════════════════════════════════
-// 홈 화면
-// ══════════════════════════════════════════════════════════
 @Composable
-fun HomeScreen(onStartDriving: () -> Unit) {
-    val bleConnected    by remember { mutableStateOf(true) }
-    val gpsActive       by remember { mutableStateOf(true) }
-    val sensorBattery   by remember { mutableStateOf(87) }
+fun HomeScreen(
+    onStartDriving: () -> Unit,
+    onOpenSensorConnection: () -> Unit
+) {
+    val bleConnected by remember { mutableStateOf(true) }
+    val gpsActive by remember { mutableStateOf(true) }
+    val sensorBattery by remember { mutableStateOf(87) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(AppColors.Background)
     ) {
-        // 헤더
         AppTopBar(title = "동행가드")
 
         LazyColumn(
-            modifier           = Modifier.weight(1f),
-            contentPadding     = PaddingValues(horizontal = 24.dp, vertical = 24.dp),
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // 앱 소개 카드
             item {
                 Card(
-                    colors    = CardDefaults.cardColors(containerColor = AppColors.CardBackground),
-                    shape     = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = AppColors.CardBackground),
+                    shape = RoundedCornerShape(16.dp),
                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                    modifier  = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
-                        modifier            = Modifier.padding(vertical = 28.dp, horizontal = 24.dp),
+                        modifier = Modifier.padding(vertical = 28.dp, horizontal = 24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Box(
-                            modifier            = Modifier
+                            modifier = Modifier
                                 .size(80.dp)
                                 .clip(CircleShape)
                                 .background(AppColors.PrimaryLight),
-                            contentAlignment    = Alignment.Center
+                            contentAlignment = Alignment.Center
                         ) {
                             Text("🛡", fontSize = 40.sp)
                         }
+
                         Spacer(modifier = Modifier.height(14.dp))
+
                         Text(
-                            "동행가드",
-                            fontSize   = 22.sp,
+                            text = "동행가드",
+                            fontSize = 22.sp,
                             fontWeight = FontWeight.Bold,
-                            color      = AppColors.TextPrimary
+                            color = AppColors.TextPrimary
                         )
+
                         Spacer(modifier = Modifier.height(4.dp))
+
                         Text(
-                            "전동 휠체어 이용자를 위한\n실시간 위험 감지 서비스",
-                            fontSize  = 13.sp,
-                            color     = AppColors.TextSecondary,
+                            text = "전동 휠체어 이용자를 위한\n실시간 위험 감지 서비스",
+                            fontSize = 13.sp,
+                            color = AppColors.TextSecondary,
                             textAlign = TextAlign.Center
                         )
                     }
                 }
             }
 
-            // 센서 연결 상태
             item {
                 SectionLabel("센서 연결 상태")
+
                 Spacer(modifier = Modifier.height(8.dp))
+
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     SensorStatusChip(
-                        emoji     = "📶",
-                        label     = "BLE",
-                        value     = if (bleConnected) "연결됨" else "미연결",
+                        emoji = "📶",
+                        label = "BLE",
+                        value = if (bleConnected) "연결됨" else "미연결",
                         connected = bleConnected,
-                        modifier  = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f)
                     )
+
                     SensorStatusChip(
-                        emoji     = "📍",
-                        label     = "GPS",
-                        value     = if (gpsActive) "활성" else "비활성",
+                        emoji = "📍",
+                        label = "GPS",
+                        value = if (gpsActive) "활성" else "비활성",
                         connected = gpsActive,
-                        modifier  = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f)
                     )
+
                     SensorStatusChip(
-                        emoji     = "🔋",
-                        label     = "배터리",
-                        value     = "$sensorBattery%",
+                        emoji = "🔋",
+                        label = "배터리",
+                        value = "$sensorBattery%",
                         connected = sensorBattery > 20,
-                        modifier  = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f)
                     )
                 }
             }
 
-            // 주요 기능 안내
-            item { SectionLabel("주요 기능") }
+            item {
+                OutlinedButton(
+                    onClick = onOpenSensorConnection,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = AppColors.Primary
+                    )
+                ) {
+                    Text(
+                        text = "센서 연결 관리",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+
+            item {
+                SectionLabel("주요 기능")
+            }
 
             item {
                 FeatureRow(
-                    emoji       = "📡",
-                    title       = "실시간 위험 감지",
+                    emoji = "📡",
+                    title = "실시간 위험 감지",
                     description = "ToF + 초음파 센서로 전방 장애물을 실시간으로 감지합니다"
                 )
             }
+
             item {
                 FeatureRow(
-                    emoji       = "🗺",
-                    title       = "위험 이벤트 기록",
+                    emoji = "🗺",
+                    title = "위험 이벤트 기록",
                     description = "GPS 위치와 함께 DANGER / WARNING 이벤트를 자동으로 저장합니다"
                 )
             }
+
             item {
                 FeatureRow(
-                    emoji       = "🔔",
-                    title       = "즉시 알림",
+                    emoji = "🔔",
+                    title = "즉시 알림",
                     description = "위험 단계별 진동 및 소리 알림으로 즉각 대응이 가능합니다"
                 )
             }
         }
 
-        // 주행 시작 버튼
         Surface(
-            color           = AppColors.CardBackground,
+            color = AppColors.CardBackground,
             shadowElevation = 4.dp
         ) {
             Button(
-                onClick  = onStartDriving,
+                onClick = onStartDriving,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 24.dp, vertical = 16.dp)
                     .height(52.dp),
-                shape    = RoundedCornerShape(12.dp),
-                colors   = ButtonDefaults.buttonColors(
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
                     containerColor = AppColors.Primary,
-                    contentColor   = AppColors.OnPrimary
+                    contentColor = AppColors.OnPrimary
                 )
             ) {
-                Text("▶  주행 시작", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    text = "▶  주행 시작",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
         }
     }
 }
 
 @Composable
-fun SectionLabel(text: String) {
-    Text(
-        text       = text,
-        fontSize   = 14.sp,
-        fontWeight = FontWeight.SemiBold,
-        color      = AppColors.TextPrimary
-    )
-}
-
-@Composable
-fun SensorStatusChip(
-    emoji:     String,
-    label:     String,
-    value:     String,
-    connected: Boolean,
-    modifier:  Modifier = Modifier
+fun SensorConnectionScreen(
+    onBack: () -> Unit
 ) {
-    Card(
-        colors   = CardDefaults.cardColors(
-            containerColor = if (connected) AppColors.SafeBg else AppColors.DangerBg
-        ),
-        shape    = RoundedCornerShape(12.dp),
-        modifier = modifier
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(AppColors.Background)
     ) {
-        Column(
-            modifier            = Modifier.padding(12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(3.dp)
+        AppTopBar(title = "센서 연결")
+
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text(emoji, fontSize = 20.sp)
-            Text(label, fontSize = 10.sp, color = AppColors.TextSecondary)
-            Text(
-                value,
-                fontSize   = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                color      = if (connected) AppColors.Safe else AppColors.Danger
-            )
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = AppColors.CardBackground),
+                    shape = RoundedCornerShape(16.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = "ESP32 센서 모듈",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = AppColors.TextPrimary
+                        )
+
+                        Text(
+                            text = "DG-ESP32-001",
+                            fontSize = 13.sp,
+                            color = AppColors.TextSecondary
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        ConnStatusBadge(
+                            emoji = "📶",
+                            label = "BLE 연결 대기 중",
+                            active = false
+                        )
+
+                        ConnStatusBadge(
+                            emoji = "📍",
+                            label = "GPS 활성",
+                            active = true
+                        )
+
+                        ConnStatusBadge(
+                            emoji = "🔋",
+                            label = "배터리 87%",
+                            active = true
+                        )
+                    }
+                }
+            }
+
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = AppColors.PrimaryLight),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "연동 예정 흐름",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = AppColors.TextPrimary
+                        )
+
+                        Text(
+                            text = "ESP32 → Android 앱 BLE 수신 → 백엔드 저장",
+                            fontSize = 13.sp,
+                            color = AppColors.TextSecondary
+                        )
+
+                        Text(
+                            text = "현재 화면은 실제 BLE 연동 전 mock 상태입니다.",
+                            fontSize = 12.sp,
+                            color = AppColors.TextSecondary
+                        )
+                    }
+                }
+            }
+
+            item {
+                Button(
+                    onClick = { },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = AppColors.Primary,
+                        contentColor = AppColors.OnPrimary
+                    )
+                ) {
+                    Text(
+                        text = "센서 연결 테스트",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+
+            item {
+                OutlinedButton(
+                    onClick = onBack,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = AppColors.TextSecondary
+                    )
+                ) {
+                    Text(
+                        text = "홈으로 돌아가기",
+                        fontSize = 14.sp
+                    )
+                }
+            }
         }
     }
 }
 
-@Composable
-fun FeatureRow(emoji: String, title: String, description: String) {
-    Card(
-        colors    = CardDefaults.cardColors(containerColor = AppColors.CardBackground),
-        shape     = RoundedCornerShape(12.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        modifier  = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            modifier            = Modifier.padding(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalAlignment   = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier         = Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(AppColors.PrimaryLight),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(emoji, fontSize = 20.sp)
-            }
-            Column {
-                Text(
-                    title,
-                    fontSize   = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color      = AppColors.TextPrimary
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    description,
-                    fontSize = 12.sp,
-                    color    = AppColors.TextSecondary
-                )
-            }
-        }
-    }
-}
-
-// ══════════════════════════════════════════════════════════
-// 주행 중 화면
-// ══════════════════════════════════════════════════════════
 @Composable
 fun DrivingScreen() {
-    var tripActive      by remember { mutableStateOf(false) }
-    var riskLevel       by remember { mutableStateOf(RiskLevel.SAFE) }
-    var distanceMm      by remember { mutableStateOf(1250) }
-    val bleConnected    by remember { mutableStateOf(true) }
-    val gpsActive       by remember { mutableStateOf(true) }
-    var showEndDialog   by remember { mutableStateOf(false) }
+    var tripActive by remember { mutableStateOf(false) }
+    var riskLevel by remember { mutableStateOf(RiskLevel.SAFE) }
+    var distanceMm by remember { mutableStateOf(1250) }
+    val bleConnected by remember { mutableStateOf(true) }
+    val gpsActive by remember { mutableStateOf(true) }
+    var showEndDialog by remember { mutableStateOf(false) }
 
     val riskState = riskUiState(riskLevel)
 
     val animatedBg by animateColorAsState(
-        targetValue    = riskState.backgroundColor,
-        animationSpec  = tween(300),
-        label          = "bg"
+        targetValue = riskState.backgroundColor,
+        animationSpec = tween(300),
+        label = "bg"
     )
 
-    // DANGER 상태일 때 펄스 효과
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+
     val pulseScale by infiniteTransition.animateFloat(
-        initialValue   = 1f,
-        targetValue    = if (riskLevel == RiskLevel.DANGER) 1.04f else 1f,
-        animationSpec  = infiniteRepeatable(
-            animation  = tween(550),
+        initialValue = 1f,
+        targetValue = if (riskLevel == RiskLevel.DANGER) 1.04f else 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(550),
             repeatMode = RepeatMode.Reverse
         ),
         label = "scale"
     )
 
-    // 주행 종료 확인 다이얼로그
     if (showEndDialog) {
         AlertDialog(
             onDismissRequest = { showEndDialog = false },
             title = {
-                Text("주행 종료", fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
+                Text(
+                    text = "주행 종료",
+                    fontWeight = FontWeight.SemiBold,
+                    color = AppColors.TextPrimary
+                )
             },
             text = {
                 Text(
-                    "주행을 종료하시겠습니까?\n주행 기록이 저장됩니다.",
-                    color    = AppColors.TextSecondary,
+                    text = "주행을 종료하시겠습니까?\n주행 기록이 저장됩니다.",
+                    color = AppColors.TextSecondary,
                     fontSize = 14.sp
                 )
             },
             confirmButton = {
-                TextButton(onClick = {
-                    tripActive   = false
-                    riskLevel    = RiskLevel.SAFE
-                    distanceMm   = 1250
-                    showEndDialog = false
-                }) {
-                    Text("종료", color = AppColors.Danger, fontWeight = FontWeight.SemiBold)
+                TextButton(
+                    onClick = {
+                        tripActive = false
+                        riskLevel = RiskLevel.SAFE
+                        distanceMm = 1250
+                        showEndDialog = false
+                    }
+                ) {
+                    Text(
+                        text = "종료",
+                        color = AppColors.Danger,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showEndDialog = false }) {
-                    Text("계속 주행", color = AppColors.TextSecondary)
+                TextButton(
+                    onClick = { showEndDialog = false }
+                ) {
+                    Text(
+                        text = "계속 주행",
+                        color = AppColors.TextSecondary
+                    )
                 }
             }
         )
@@ -525,33 +641,38 @@ fun DrivingScreen() {
             .fillMaxSize()
             .background(AppColors.Background)
     ) {
-        // 헤더 + 연결 상태 바
-        Surface(color = AppColors.CardBackground, shadowElevation = 1.dp) {
+        Surface(
+            color = AppColors.CardBackground,
+            shadowElevation = 1.dp
+        ) {
             Column {
                 AppTopBar(title = "주행")
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(AppColors.Surface)
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment     = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     ConnStatusBadge(
-                        emoji   = "📶",
-                        label   = if (bleConnected) "BLE 연결됨" else "BLE 미연결",
-                        active  = bleConnected
+                        emoji = "📶",
+                        label = if (bleConnected) "BLE 연결됨" else "BLE 미연결",
+                        active = bleConnected
                     )
+
                     ConnStatusBadge(
-                        emoji   = "📍",
-                        label   = if (gpsActive) "GPS 활성" else "GPS 비활성",
-                        active  = gpsActive
+                        emoji = "📍",
+                        label = if (gpsActive) "GPS 활성" else "GPS 비활성",
+                        active = gpsActive
                     )
+
                     ConnStatusBadge(
-                        emoji        = if (tripActive) "●" else "○",
-                        label        = if (tripActive) "주행 중" else "대기 중",
-                        active       = tripActive,
-                        activeColor  = AppColors.Danger
+                        emoji = if (tripActive) "●" else "○",
+                        label = if (tripActive) "주행 중" else "대기 중",
+                        active = tripActive,
+                        activeColor = AppColors.Danger
                     )
                 }
             }
@@ -564,16 +685,15 @@ fun DrivingScreen() {
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             if (!tripActive) {
-                // ── 주행 대기 상태 ──────────────────────────────
                 Column(
-                    modifier            = Modifier
+                    modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth(),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
                     Box(
-                        modifier         = Modifier
+                        modifier = Modifier
                             .size(100.dp)
                             .clip(CircleShape)
                             .background(AppColors.PrimaryLight),
@@ -581,39 +701,46 @@ fun DrivingScreen() {
                     ) {
                         Text("🛡", fontSize = 50.sp)
                     }
+
                     Spacer(modifier = Modifier.height(20.dp))
+
                     Text(
-                        "주행 준비 완료",
-                        fontSize   = 20.sp,
+                        text = "주행 준비 완료",
+                        fontSize = 20.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color      = AppColors.TextPrimary
+                        color = AppColors.TextPrimary
                     )
+
                     Spacer(modifier = Modifier.height(8.dp))
+
                     Text(
-                        "센서가 연결되었습니다\n주행을 시작하면 실시간으로 위험을 감지합니다",
-                        fontSize  = 14.sp,
-                        color     = AppColors.TextSecondary,
+                        text = "센서가 연결되었습니다\n주행을 시작하면 실시간으로 위험을 감지합니다",
+                        fontSize = 14.sp,
+                        color = AppColors.TextSecondary,
                         textAlign = TextAlign.Center
                     )
+
                     Spacer(modifier = Modifier.height(36.dp))
+
                     Button(
-                        onClick  = { tripActive = true },
+                        onClick = { tripActive = true },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(52.dp),
-                        shape    = RoundedCornerShape(12.dp),
-                        colors   = ButtonDefaults.buttonColors(
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
                             containerColor = AppColors.Primary,
-                            contentColor   = AppColors.OnPrimary
+                            contentColor = AppColors.OnPrimary
                         )
                     ) {
-                        Text("▶  주행 시작", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            text = "▶  주행 시작",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
                     }
                 }
             } else {
-                // ── 주행 중 상태 ────────────────────────────────
-
-                // 위험 상태 카드
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -625,9 +752,8 @@ fun DrivingScreen() {
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        // 위험 레벨 아이콘 (Box로 직접 그리기)
                         Box(
-                            modifier         = Modifier
+                            modifier = Modifier
                                 .size(90.dp)
                                 .clip(CircleShape)
                                 .background(riskState.color.copy(alpha = 0.15f))
@@ -635,31 +761,33 @@ fun DrivingScreen() {
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text       = riskState.emoji,
-                                fontSize   = 40.sp,
-                                color      = riskState.color,
+                                text = riskState.emoji,
+                                fontSize = 40.sp,
+                                color = riskState.color,
                                 fontWeight = FontWeight.ExtraBold
                             )
                         }
 
                         Spacer(modifier = Modifier.height(12.dp))
+
                         Text(
-                            riskState.label,
-                            fontSize   = 32.sp,
+                            text = riskState.label,
+                            fontSize = 32.sp,
                             fontWeight = FontWeight.ExtraBold,
-                            color      = riskState.color
+                            color = riskState.color
                         )
+
                         Spacer(modifier = Modifier.height(4.dp))
+
                         Text(
-                            riskState.description,
-                            fontSize  = 14.sp,
-                            color     = AppColors.TextPrimary,
+                            text = riskState.description,
+                            fontSize = 14.sp,
+                            color = AppColors.TextPrimary,
                             textAlign = TextAlign.Center
                         )
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        // 전방 거리값 표시
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -671,25 +799,29 @@ fun DrivingScreen() {
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(
-                                    "전방 거리",
+                                    text = "전방 거리",
                                     fontSize = 12.sp,
-                                    color    = AppColors.TextSecondary
+                                    color = AppColors.TextSecondary
                                 )
+
                                 Spacer(modifier = Modifier.height(4.dp))
+
                                 Row(verticalAlignment = Alignment.Bottom) {
                                     Text(
-                                        "$distanceMm",
-                                        fontSize     = 38.sp,
-                                        fontWeight   = FontWeight.Bold,
-                                        fontFamily   = FontFamily.Monospace,
-                                        color        = AppColors.TextPrimary
+                                        text = "$distanceMm",
+                                        fontSize = 38.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = AppColors.TextPrimary
                                     )
+
                                     Spacer(modifier = Modifier.width(4.dp))
+
                                     Text(
-                                        "mm",
-                                        fontSize  = 18.sp,
-                                        color     = AppColors.TextSecondary,
-                                        modifier  = Modifier.padding(bottom = 5.dp)
+                                        text = "mm",
+                                        fontSize = 18.sp,
+                                        color = AppColors.TextSecondary,
+                                        modifier = Modifier.padding(bottom = 5.dp)
                                     )
                                 }
                             }
@@ -699,13 +831,13 @@ fun DrivingScreen() {
 
                 Spacer(modifier = Modifier.weight(1f))
 
-                // 임시 센서 데이터 전송 (데모) 버튼
                 OutlinedButton(
                     onClick = {
-                        val risks     = RiskLevel.values()
+                        val risks = listOf(RiskLevel.SAFE, RiskLevel.WARNING, RiskLevel.DANGER)
                         val distances = listOf(1250, 450, 150)
-                        val next      = (riskLevel.ordinal + 1) % risks.size
-                        riskLevel  = risks[next]
+                        val next = (riskLevel.ordinal + 1) % risks.size
+
+                        riskLevel = risks[next]
                         distanceMm = distances[next]
                     },
                     modifier = Modifier
@@ -716,27 +848,32 @@ fun DrivingScreen() {
                         contentColor = AppColors.TextSecondary
                     )
                 ) {
-                    Text("[데모] 임시 센서 데이터 전송", fontSize = 13.sp)
+                    Text(
+                        text = "[데모] 임시 센서 데이터 전송",
+                        fontSize = 13.sp
+                    )
                 }
 
-                // 주행 종료 버튼
                 Button(
-                    onClick  = { showEndDialog = true },
+                    onClick = { showEndDialog = true },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp),
-                    shape    = RoundedCornerShape(12.dp),
-                    colors   = ButtonDefaults.buttonColors(
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
                         containerColor = AppColors.Danger,
-                        contentColor   = Color.White
+                        contentColor = Color.White
                     )
                 ) {
-                    Text("■  주행 종료", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        text = "■  주행 종료",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             }
         }
 
-        // 하단 상태 디버그 바 (시안 검토용)
         if (tripActive) {
             Box(
                 modifier = Modifier
@@ -745,9 +882,9 @@ fun DrivingScreen() {
                     .padding(horizontal = 16.dp, vertical = 6.dp)
             ) {
                 Text(
-                    text     = "상태: 주행중  |  ${riskLevel.name}  |  ${distanceMm}mm",
+                    text = "상태: 주행중  |  ${riskLevel.name}  |  ${distanceMm}mm",
                     fontSize = 11.sp,
-                    color    = AppColors.TextSecondary,
+                    color = AppColors.TextSecondary,
                     fontFamily = FontFamily.Monospace
                 )
             }
@@ -755,29 +892,6 @@ fun DrivingScreen() {
     }
 }
 
-@Composable
-fun ConnStatusBadge(
-    emoji:       String,
-    label:       String,
-    active:      Boolean,
-    activeColor: Color = AppColors.Safe
-) {
-    Row(
-        verticalAlignment     = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        Text(emoji, fontSize = 13.sp)
-        Text(
-            label,
-            fontSize = 12.sp,
-            color    = if (active) activeColor else AppColors.TextSecondary
-        )
-    }
-}
-
-// ══════════════════════════════════════════════════════════
-// 주행 기록 화면
-// ══════════════════════════════════════════════════════════
 @Composable
 fun HistoryScreen() {
     Column(
@@ -789,30 +903,34 @@ fun HistoryScreen() {
 
         if (mockTripHistory.isEmpty()) {
             Box(
-                modifier         = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("📋", fontSize = 48.sp)
+
                     Spacer(modifier = Modifier.height(16.dp))
+
                     Text(
-                        "주행 기록이 없습니다",
-                        fontSize   = 16.sp,
+                        text = "주행 기록이 없습니다",
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color      = AppColors.TextPrimary
+                        color = AppColors.TextPrimary
                     )
+
                     Spacer(modifier = Modifier.height(4.dp))
+
                     Text(
-                        "첫 주행을 시작해보세요",
+                        text = "첫 주행을 시작해보세요",
                         fontSize = 14.sp,
-                        color    = AppColors.TextSecondary
+                        color = AppColors.TextSecondary
                     )
                 }
             }
         } else {
             LazyColumn(
-                modifier           = Modifier.fillMaxSize(),
-                contentPadding     = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(mockTripHistory) { trip ->
@@ -828,53 +946,68 @@ fun TripCard(trip: TripRecord) {
     val rs = riskUiState(trip.maxRiskLevel)
 
     Card(
-        colors    = CardDefaults.cardColors(containerColor = AppColors.CardBackground),
-        shape     = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = AppColors.CardBackground),
+        shape = RoundedCornerShape(12.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        modifier  = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            // 날짜 + 화살표
             Row(
-                modifier              = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment     = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    trip.date,
-                    fontSize   = 15.sp,
+                    text = trip.date,
+                    fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color      = AppColors.TextPrimary
+                    color = AppColors.TextPrimary
                 )
-                Text(">", fontSize = 18.sp, color = AppColors.TextSecondary)
+
+                Text(
+                    text = ">",
+                    fontSize = 18.sp,
+                    color = AppColors.TextSecondary
+                )
             }
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // 시간 + 소요 시간
             Row(
-                verticalAlignment     = Alignment.CenterVertically,
+                verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Text("○", fontSize = 11.sp, color = AppColors.TextSecondary)
                 Text(
-                    "${trip.timeRange}  ·  ${trip.duration}",
+                    text = "○",
+                    fontSize = 11.sp,
+                    color = AppColors.TextSecondary
+                )
+
+                Text(
+                    text = "${trip.timeRange}  ·  ${trip.duration}",
                     fontSize = 12.sp,
-                    color    = AppColors.TextSecondary
+                    color = AppColors.TextSecondary
                 )
             }
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // 위험 / 주의 횟수
             Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                RiskCountBadge(color = AppColors.Danger,  label = "위험", count = trip.dangerCount)
-                RiskCountBadge(color = AppColors.Warning, label = "주의", count = trip.warningCount)
+                RiskCountBadge(
+                    color = AppColors.Danger,
+                    label = "위험",
+                    count = trip.dangerCount
+                )
+
+                RiskCountBadge(
+                    color = AppColors.Warning,
+                    label = "주의",
+                    count = trip.warningCount
+                )
             }
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // 최고 위험 배지
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(6.dp))
@@ -882,10 +1015,10 @@ fun TripCard(trip: TripRecord) {
                     .padding(horizontal = 10.dp, vertical = 5.dp)
             ) {
                 Text(
-                    "최고 위험: ${rs.label}",
-                    fontSize   = 12.sp,
+                    text = "최고 위험: ${rs.label}",
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color      = rs.color
+                    color = rs.color
                 )
             }
         }
@@ -893,9 +1026,138 @@ fun TripCard(trip: TripRecord) {
 }
 
 @Composable
-fun RiskCountBadge(color: Color, label: String, count: Int) {
+fun SectionLabel(text: String) {
+    Text(
+        text = text,
+        fontSize = 14.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = AppColors.TextPrimary
+    )
+}
+
+@Composable
+fun SensorStatusChip(
+    emoji: String,
+    label: String,
+    value: String,
+    connected: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = if (connected) AppColors.SafeBg else AppColors.DangerBg
+        ),
+        shape = RoundedCornerShape(12.dp),
+        modifier = modifier
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Text(
+                text = emoji,
+                fontSize = 20.sp
+            )
+
+            Text(
+                text = label,
+                fontSize = 10.sp,
+                color = AppColors.TextSecondary
+            )
+
+            Text(
+                text = value,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = if (connected) AppColors.Safe else AppColors.Danger
+            )
+        }
+    }
+}
+
+@Composable
+fun FeatureRow(
+    emoji: String,
+    title: String,
+    description: String
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = AppColors.CardBackground),
+        shape = RoundedCornerShape(12.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(AppColors.PrimaryLight),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = emoji,
+                    fontSize = 20.sp
+                )
+            }
+
+            Column {
+                Text(
+                    text = title,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = AppColors.TextPrimary
+                )
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                Text(
+                    text = description,
+                    fontSize = 12.sp,
+                    color = AppColors.TextSecondary
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun ConnStatusBadge(
+    emoji: String,
+    label: String,
+    active: Boolean,
+    activeColor: Color = AppColors.Safe
+) {
     Row(
-        verticalAlignment     = Alignment.CenterVertically,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            text = emoji,
+            fontSize = 13.sp
+        )
+
+        Text(
+            text = label,
+            fontSize = 12.sp,
+            color = if (active) activeColor else AppColors.TextSecondary
+        )
+    }
+}
+
+@Composable
+fun RiskCountBadge(
+    color: Color,
+    label: String,
+    count: Int
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Box(
@@ -904,30 +1166,40 @@ fun RiskCountBadge(color: Color, label: String, count: Int) {
                 .clip(CircleShape)
                 .background(color)
         )
-        Text("$label  \${count}회", fontSize = 12.sp, color = AppColors.TextSecondary)
+
+        Text(
+            text = "${label}  ${count}회",
+            fontSize = 12.sp,
+            color = AppColors.TextSecondary
+        )
     }
 }
 
-// ══════════════════════════════════════════════════════════
-// 공통 컴포넌트
-// ══════════════════════════════════════════════════════════
 @Composable
 fun AppTopBar(title: String) {
-    Surface(color = AppColors.CardBackground, shadowElevation = 1.dp) {
+    Surface(
+        color = AppColors.CardBackground,
+        shadowElevation = 1.dp
+    ) {
         Row(
-            modifier              = Modifier
+            modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 14.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment     = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                title,
-                fontSize   = 18.sp,
+                text = title,
+                fontSize = 18.sp,
                 fontWeight = FontWeight.SemiBold,
-                color      = AppColors.TextPrimary
+                color = AppColors.TextPrimary
             )
-            Text("⚙", fontSize = 20.sp, color = AppColors.TextSecondary)
+
+            Text(
+                text = "⚙",
+                fontSize = 20.sp,
+                color = AppColors.TextSecondary
+            )
         }
     }
 }
