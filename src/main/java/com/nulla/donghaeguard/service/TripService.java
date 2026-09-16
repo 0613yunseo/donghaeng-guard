@@ -4,11 +4,11 @@ import com.nulla.donghaeguard.dto.request.TripEndRequest;
 import com.nulla.donghaeguard.dto.request.TripStartRequest;
 import com.nulla.donghaeguard.dto.response.*;
 import com.nulla.donghaeguard.entity.Device;
-import com.nulla.donghaeguard.entity.RiskEvent;
+import com.nulla.donghaeguard.entity.SensorEvent;
 import com.nulla.donghaeguard.entity.Trip;
 import com.nulla.donghaeguard.entity.User;
 import com.nulla.donghaeguard.repository.DeviceRepository;
-import com.nulla.donghaeguard.repository.RiskEventRepository;
+import com.nulla.donghaeguard.repository.SensorEventRepository;
 import com.nulla.donghaeguard.repository.TripRepository;
 import com.nulla.donghaeguard.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -24,7 +24,7 @@ public class TripService {
     private final TripRepository tripRepository;
     private final UserRepository userRepository;
     private final DeviceRepository deviceRepository;
-    private final RiskEventRepository riskEventRepository;
+    private final SensorEventRepository sensorEventRepository;
 
     @Transactional
     public TripStartResponse startTrip(TripStartRequest request) {
@@ -56,7 +56,7 @@ public class TripService {
         Trip trip = tripRepository.findById(tripId)
                 .orElseThrow(() -> new RuntimeException("주행 세션을 찾을 수 없습니다."));
 
-        int eventCount = riskEventRepository.findByTripTripId(tripId).size();
+        int eventCount = sensorEventRepository.findByTripTripId(tripId).size();
 
         Trip updatedTrip = Trip.builder()
                 .tripId(trip.getTripId())
@@ -124,13 +124,13 @@ public class TripService {
         Trip trip = tripRepository.findById(tripId)
                 .orElseThrow(() -> new RuntimeException("주행 세션을 찾을 수 없습니다."));
 
-        List<RiskEvent> events = riskEventRepository.findByTripTripId(tripId);
+        List<SensorEvent> events = sensorEventRepository.findByTripTripId(tripId);
 
-        List<RiskEventDetailResponse> eventResponses = events.stream()
-                .map(e -> new RiskEventDetailResponse(
+        List<SensorEventDetailResponse> eventResponses = events.stream()
+                .map(e -> new SensorEventDetailResponse(
                         e.getEventId(),
-                        e.getRiskLevel().name(),
-                        e.getDistanceMm(),
+                        e.getSensorType().name(),
+                        e.getRiskLevel() != null ? e.getRiskLevel().name() : null,
                         e.getLatitude(),
                         e.getLongitude(),
                         e.getDetectedAt()
@@ -148,4 +148,3 @@ public class TripService {
         );
     }
 }
-

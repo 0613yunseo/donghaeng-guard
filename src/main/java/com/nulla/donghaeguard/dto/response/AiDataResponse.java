@@ -10,7 +10,6 @@ public class AiDataResponse {
     private Long eventId;
     private String sensorType;
     private String riskLevel;
-    private Integer distanceMm;
     private Double latitude;
     private Double longitude;
     private LocalDateTime detectedAt;
