@@ -3,8 +3,8 @@ package com.nulla.donghaeguard.service;
 import com.nulla.donghaeguard.dto.request.AiResultRequest;
 import com.nulla.donghaeguard.dto.response.AiDataResponse;
 import com.nulla.donghaeguard.entity.RiskZone;
-import com.nulla.donghaeguard.repository.RiskEventRepository;
 import com.nulla.donghaeguard.repository.RiskZoneRepository;
+import com.nulla.donghaeguard.repository.SensorEventRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,17 +16,16 @@ import java.util.List;
 @RequiredArgsConstructor
 public class AiService {
 
-    private final RiskEventRepository riskEventRepository;
+    private final SensorEventRepository sensorEventRepository;
     private final RiskZoneRepository riskZoneRepository;
 
     @Transactional(readOnly = true)
     public List<AiDataResponse> getAiData() {
-        return riskEventRepository.findAll().stream()
+        return sensorEventRepository.findAll().stream()
                 .map(e -> new AiDataResponse(
                         e.getEventId(),
                         e.getSensorType().name(),
-                        e.getRiskLevel().name(),
-                        e.getDistanceMm(),
+                        e.getRiskLevel() != null ? e.getRiskLevel().name() : null,
                         e.getLatitude(),
                         e.getLongitude(),
                         e.getDetectedAt()
