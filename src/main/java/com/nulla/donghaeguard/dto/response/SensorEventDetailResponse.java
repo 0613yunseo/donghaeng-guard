@@ -13,4 +13,18 @@ public class SensorEventDetailResponse {
     private Double latitude;
     private Double longitude;
     private LocalDateTime detectedAt;
+
+    // 초음파용
+    private Integer sensorId;
+    private Integer distanceMm;
+
+    // 기울기용
+    private Float pitch;
+    private String slopeStatus;
+
+    // 카메라용
+    private String detectedObject;
+    private Float confidence;
+    private Float stdDev;
+    private String imageUrl;
 }
