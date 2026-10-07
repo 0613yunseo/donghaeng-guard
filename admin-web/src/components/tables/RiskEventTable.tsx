@@ -42,9 +42,9 @@ export function RiskEventTable({ events, onRowClick }: Props) {
               <td className="px-4 py-3"><RiskBadge level={e.rl} /></td>
               <td className="px-4 py-3 font-mono" style={{ color: t.textSub }}>{e.sensor}</td>
               <td className="px-4 py-3" style={{ color: t.muted }}>{e.rt}</td>
-              <td className="px-4 py-3 font-semibold" style={{ color: t.text }}>{e.mm}</td>
-              <td className="px-4 py-3 font-mono" style={{ color: t.muted }}>{e.lat.toFixed(4)}</td>
-              <td className="px-4 py-3 font-mono" style={{ color: t.muted }}>{e.lng.toFixed(4)}</td>
+              <td className="px-4 py-3 font-semibold" style={{ color: t.text }}>{e.mm ?? "—"}</td>
+              <td className="px-4 py-3 font-mono" style={{ color: t.muted }}>{e.lat?.toFixed(4) ?? "—"}</td>
+              <td className="px-4 py-3 font-mono" style={{ color: t.muted }}>{e.lng?.toFixed(4) ?? "—"}</td>
               <td className="px-4 py-3 font-mono text-[11px]" style={{ color: t.muted }}>{e.dev}</td>
               <td className="px-4 py-3" style={{ color: t.muted }}>{e.trip}</td>
             </tr>

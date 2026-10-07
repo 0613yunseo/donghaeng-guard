@@ -46,7 +46,7 @@ export function TripTable({ trips }: Props) {
                   {trip.cnt}
                 </span>
               </td>
-              <td className="px-4 py-3"><RiskBadge level={trip.rl} /></td>
+              <td className="px-4 py-3">{trip.rl ? <RiskBadge level={trip.rl} /> : "—"}</td>
             </tr>
           ))}
         </tbody>

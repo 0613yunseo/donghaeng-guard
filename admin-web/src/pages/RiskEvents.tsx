@@ -5,18 +5,19 @@ import { useApp } from "../contexts/AppContext";
 import { C } from "../constants/colors";
 import { Card, CardHead, FilterBar, SelectInput, PrimaryBtn, OutlineBtn } from "../components/ui";
 import { RiskEventTable } from "../components/tables/RiskEventTable";
-import { EVENTS, DEVICES } from "../mocks/adminMockData";
+import { useTripDetail } from "../hooks/useTripDetail";
 import type { RiskLevel } from "../types/admin";
 
 export function RiskEvents() {
-  const { onNav, searchQuery } = useApp();
+  const { t, onNav, searchQuery } = useApp();
+  const { events, loading, error } = useTripDetail();
   const [rl,      setRl]      = useState("");
   const [sensor,  setSensor]  = useState("");
   const [rt,      setRt]      = useState("");
   const [dev,     setDev]     = useState("");
   const [applied, setApplied] = useState({ rl: "", sensor: "", rt: "", dev: "" });
 
-  const filtered = EVENTS.filter(e => {
+  const filtered = events.filter(e => {
     const q = searchQuery.toLowerCase();
     const matchSearch = !q
       || e.id.toLowerCase().includes(q)
@@ -50,15 +51,15 @@ export function RiskEvents() {
         </SelectInput>
         <SelectInput value={sensor} onChange={setSensor}>
           <option value="">센서 종류 전체</option>
-          {["TOF","ULTRASONIC"].map(v => <option key={v} value={v}>{v}</option>)}
+          {Array.from(new Set(events.map(e => e.sensor))).map(v => <option key={v} value={v}>{v}</option>)}
         </SelectInput>
         <SelectInput value={rt} onChange={setRt}>
           <option value="">위험 유형 전체</option>
-          {["OBSTACLE","CURB","SLOPE","UNKNOWN"].map(v => <option key={v} value={v}>{v}</option>)}
+          <option value="" disabled>위험 유형 정보 미제공</option>
         </SelectInput>
         <SelectInput value={dev} onChange={setDev}>
           <option value="">디바이스 전체</option>
-          {DEVICES.map(d => <option key={d.id} value={d.id}>{d.id}</option>)}
+          <option value="" disabled>디바이스 정보 미제공</option>
         </SelectInput>
         <PrimaryBtn onClick={apply}>적용</PrimaryBtn>
         <OutlineBtn onClick={reset}>초기화</OutlineBtn>
@@ -71,15 +72,17 @@ export function RiskEvents() {
 
       <Card>
         <CardHead
-          title="위험 이벤트 목록"
-          sub={`${filtered.length}건 / 전체 ${EVENTS.length}건`}
+          title="위험 이벤트 목록 (주행 ID: 1)"
+          sub={`${filtered.length}건 / 전체 ${events.length}건`}
           right={
             <OutlineBtn icon={Download} onClick={() => toast.success("CSV 파일이 다운로드되었습니다.")}>
               내보내기
             </OutlineBtn>
           }
         />
-        <RiskEventTable events={filtered} onRowClick={(id) => onNav("event-detail", id)} />
+        {loading ? <p role="status" className="p-5 text-sm" style={{ color: t.muted }}>센서 이벤트를 불러오는 중입니다.</p>
+          : error ? <p role="alert" className="p-5 text-sm">{error}</p>
+          : <RiskEventTable events={filtered} onRowClick={(id) => onNav("event-detail", id)} />}
       </Card>
     </div>
   );
