@@ -7,8 +7,24 @@ export interface SensorEventResponse {
   latitude: number | null;
   longitude: number | null;
   detectedAt: string;
+
+  // 디바이스 정보
+  deviceId?: string | null;
+  deviceName?: string | null;
+
+  // 초음파용
   sensorId?: number | null;
   distanceMm?: number | null;
+
+  // 기울기용
+  pitch?: number | null;
+  slopeStatus?: string | null;
+
+  // 카메라용
+  detectedObject?: string | null;
+  confidence?: number | null;
+  stdDev?: number | null;
+  imageUrl?: string | null;
 }
 
 export interface TripDetailResponse {
