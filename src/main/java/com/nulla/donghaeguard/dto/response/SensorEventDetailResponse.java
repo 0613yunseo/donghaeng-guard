@@ -14,6 +14,10 @@ public class SensorEventDetailResponse {
     private Double longitude;
     private LocalDateTime detectedAt;
 
+    // 디바이스 정보
+    private String deviceId;
+    private String deviceName;
+
     // 초음파용
     private Integer sensorId;
     private Integer distanceMm;

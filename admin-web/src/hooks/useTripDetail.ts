@@ -3,7 +3,6 @@ import type { RiskEvent, Trip } from "../types/admin";
 import type { TripApiResponse, TripDetailResponse } from "../types/tripApi";
 
 const DEFAULT_USER_ID = "1";
-const DEFAULT_DEVICE_ID = "DG-ESP32-001";
 
 const getRiskTypeLabel = (sensorType?: string) => {
   switch (sensorType) {
@@ -65,6 +64,9 @@ export function useTripDetail() {
     return () => controller.abort();
   }, []);
 
+  const tripDevice =
+    data?.events?.[0]?.deviceName ?? data?.events?.[0]?.deviceId ?? "—";
+
   const events: RiskEvent[] =
     data?.events.map((event) => ({
       id: String(event.eventId),
@@ -81,10 +83,12 @@ export function useTripDetail() {
       lat: event.latitude,
       lng: event.longitude,
 
-      // 현재 GET /api/trips/{tripId} 응답에는 deviceId/userId가 없으므로 임시 fallback 표시
-      // 추후 백엔드 응답에 deviceId, userId가 추가되면 해당 값으로 교체 예정
-      dev: DEFAULT_DEVICE_ID,
+      // 백엔드 응답의 deviceName/deviceId 기준으로 표시
+      dev: event.deviceName ?? event.deviceId ?? "—",
+
       trip: String(data.tripId),
+
+      // 현재 trip detail 응답에는 userId가 없으므로 임시 표시
       user: DEFAULT_USER_ID,
     })) ?? [];
 
@@ -93,7 +97,7 @@ export function useTripDetail() {
         {
           id: String(data.tripId),
           user: DEFAULT_USER_ID,
-          dev: DEFAULT_DEVICE_ID,
+          dev: tripDevice,
           st: data.status,
           start: data.startedAt.replace("T", " "),
           end: data.endedAt?.replace("T", " ") ?? "—",
