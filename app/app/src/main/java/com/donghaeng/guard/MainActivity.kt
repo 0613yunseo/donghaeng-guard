@@ -1,6 +1,13 @@
 package com.donghaeng.guard
 
 import android.os.Bundle
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import android.location.LocationManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.Dispatchers
@@ -220,9 +227,47 @@ class MainActivity : ComponentActivity() {
         setContent { DongHaengGuardApp() }
     }
 }
+fun getCurrentLocation(context: Context): Pair<Double, Double>? {
+    val fineLocationGranted = ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.ACCESS_FINE_LOCATION
+    ) == PackageManager.PERMISSION_GRANTED
+
+    val coarseLocationGranted = ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.ACCESS_COARSE_LOCATION
+    ) == PackageManager.PERMISSION_GRANTED
+
+    if (!fineLocationGranted && !coarseLocationGranted) {
+        return null
+    }
+
+    val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+
+    val providers = listOf(
+        LocationManager.GPS_PROVIDER,
+        LocationManager.NETWORK_PROVIDER
+    )
+
+    for (provider in providers) {
+        val location = try {
+            locationManager.getLastKnownLocation(provider)
+        } catch (e: SecurityException) {
+            null
+        }
+
+        if (location != null) {
+            return Pair(location.latitude, location.longitude)
+        }
+    }
+
+    return null
+}
 suspend fun sendMockSensorEvent(
     riskLevel: RiskLevel,
-    distanceMm: Int
+    distanceMm: Int,
+    latitude: Double,
+    longitude: Double
 ): String {
     return withContext(Dispatchers.IO) {
         val url = java.net.URL("http://10.0.2.2:8081/api/sensor-events")
@@ -240,8 +285,8 @@ suspend fun sendMockSensorEvent(
                   "deviceId": "DG-ESP32-001",
                   "sensorType": "ULTRASONIC",
                   "riskLevel": "${riskLevel.name}",
-                  "latitude": 37.5665,
-                  "longitude": 126.9780,
+                  "latitude": $latitude,
+                  "longitude": $longitude,
                   "detectedAt": "${LocalDateTime.now().withNano(0)}",
                   "sensorId": 1,
                   "distanceMm": $distanceMm
@@ -1010,6 +1055,19 @@ fun MainDrivingScreen(
     var showEndDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { }
+
+    val fineLocationGranted = ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.ACCESS_FINE_LOCATION
+    ) == PackageManager.PERMISSION_GRANTED
+
+    val coarseLocationGranted = ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.ACCESS_COARSE_LOCATION
+    ) == PackageManager.PERMISSION_GRANTED
 
     val animBg by animateColorAsState(targetValue = riskBg(riskLevel), animationSpec = tween(300), label = "bg")
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
@@ -1170,10 +1228,42 @@ fun MainDrivingScreen(
                         onDistanceMmChange(nextDistanceMm)
 
                         scope.launch {
+                            if (!fineLocationGranted && !coarseLocationGranted) {
+                                locationPermissionLauncher.launch(
+                                    arrayOf(
+                                        Manifest.permission.ACCESS_FINE_LOCATION,
+                                        Manifest.permission.ACCESS_COARSE_LOCATION
+                                    )
+                                )
+
+                                Toast.makeText(
+                                    context,
+                                    "위치 권한을 허용한 뒤 다시 전송해주세요.",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+
+                                return@launch
+                            }
+
+                            val currentLocation = getCurrentLocation(context)
+
+                            if (currentLocation == null) {
+                                Toast.makeText(
+                                    context,
+                                    "현재 위치를 가져오지 못했습니다. 에뮬레이터 위치 설정을 확인해주세요.",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+
+                                return@launch
+                            }
+
                             val result = sendMockSensorEvent(
                                 riskLevel = nextRiskLevel,
-                                distanceMm = nextDistanceMm
+                                distanceMm = nextDistanceMm,
+                                latitude = currentLocation.first,
+                                longitude = currentLocation.second
                             )
+
                             Toast.makeText(context, result, Toast.LENGTH_SHORT).show()
                         }
                     },
