@@ -11,10 +11,10 @@ import type { RiskLevel } from "../types/admin";
 export function RiskEvents() {
   const { t, onNav, searchQuery } = useApp();
   const { events, loading, error } = useTripDetail();
-  const [rl,      setRl]      = useState("");
-  const [sensor,  setSensor]  = useState("");
-  const [rt,      setRt]      = useState("");
-  const [dev,     setDev]     = useState("");
+  const [rl, setRl] = useState("");
+  const [sensor, setSensor] = useState("");
+  const [rt, setRt] = useState("");
+  const [dev, setDev] = useState("");
   const [applied, setApplied] = useState({ rl: "", sensor: "", rt: "", dev: "" });
 
   const filtered = events.filter(e => {
@@ -26,10 +26,10 @@ export function RiskEvents() {
       || e.rt.toLowerCase().includes(q)
       || e.trip.toLowerCase().includes(q);
     return matchSearch
-      && (!applied.rl     || e.rl     === applied.rl)
+      && (!applied.rl || e.rl === applied.rl)
       && (!applied.sensor || e.sensor === applied.sensor)
-      && (!applied.rt     || e.rt     === applied.rt)
-      && (!applied.dev    || e.dev    === applied.dev);
+      && (!applied.rt || e.rt === applied.rt)
+      && (!applied.dev || e.dev === applied.dev);
   });
 
   const apply = () => {
@@ -47,16 +47,13 @@ export function RiskEvents() {
       <FilterBar>
         <SelectInput value={rl} onChange={setRl}>
           <option value="">위험 단계 전체</option>
-          {(["DANGER","WARNING","SAFE"] as RiskLevel[]).map(v => <option key={v} value={v}>{v}</option>)}
+          {(["DANGER", "WARNING", "SAFE"] as RiskLevel[]).map(v => <option key={v} value={v}>{v}</option>)}
         </SelectInput>
         <SelectInput value={sensor} onChange={setSensor}>
           <option value="">센서 종류 전체</option>
           {Array.from(new Set(events.map(e => e.sensor))).map(v => <option key={v} value={v}>{v}</option>)}
         </SelectInput>
-        <SelectInput value={rt} onChange={setRt}>
-          <option value="">위험 유형 전체</option>
-          <option value="" disabled>위험 유형 정보 미제공</option>
-        </SelectInput>
+
         <SelectInput value={dev} onChange={setDev}>
           <option value="">디바이스 전체</option>
           <option value="" disabled>디바이스 정보 미제공</option>
@@ -82,7 +79,7 @@ export function RiskEvents() {
         />
         {loading ? <p role="status" className="p-5 text-sm" style={{ color: t.muted }}>센서 이벤트를 불러오는 중입니다.</p>
           : error ? <p role="alert" className="p-5 text-sm">{error}</p>
-          : <RiskEventTable events={filtered} onRowClick={(id) => onNav("event-detail", id)} />}
+            : <RiskEventTable events={filtered} onRowClick={(id) => onNav("event-detail", id)} />}
       </Card>
     </div>
   );

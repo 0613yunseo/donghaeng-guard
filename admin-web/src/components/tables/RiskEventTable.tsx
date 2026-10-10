@@ -8,6 +8,19 @@ interface Props {
   onRowClick: (id: string) => void;
 }
 
+const getRiskTypeLabel = (sensor?: string) => {
+  switch (sensor) {
+    case "ULTRASONIC":
+      return "근접/단차 감지";
+    case "TILT":
+      return "기울기 감지";
+    case "CAMERA":
+      return "객체 감지";
+    default:
+      return "—";
+  }
+};
+
 export function RiskEventTable({ events, onRowClick }: Props) {
   const { t } = useApp();
 
@@ -23,32 +36,129 @@ export function RiskEventTable({ events, onRowClick }: Props) {
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
         <thead>
-          <tr style={{ borderBottom: `1px solid ${t.border}`, background: t.bgSub }}>
-            {["이벤트 ID","감지 시각","위험단계","센서","위험유형","거리(mm)","위도","경도","디바이스","주행 ID"].map(h => (
-              <th key={h} className="px-4 py-3 text-left font-medium whitespace-nowrap" style={{ color: t.muted }}>{h}</th>
+          <tr
+            style={{
+              borderBottom: `1px solid ${t.border}`,
+              background: t.bgSub,
+            }}
+          >
+            {[
+              "이벤트 ID",
+              "감지 시각",
+              "위험단계",
+              "센서",
+              "위험유형",
+              "거리(mm)",
+              "위도",
+              "경도",
+              "디바이스",
+              "주행 ID",
+            ].map((h) => (
+              <th
+                key={h}
+                className="px-4 py-3 text-left font-medium whitespace-nowrap"
+                style={{ color: t.muted }}
+              >
+                {h}
+              </th>
             ))}
           </tr>
         </thead>
+
         <tbody>
-          {events.map(e => (
-            <tr key={e.id}
-              onClick={() => onRowClick(e.id)}
-              className="cursor-pointer transition-colors"
-              style={{ borderBottom: `1px solid ${t.border}`, background: e.rl === "DANGER" ? `${C.danger}07` : "transparent" }}
-              onMouseEnter={ev => (ev.currentTarget.style.background = e.rl === "DANGER" ? `${C.danger}12` : t.bgSub)}
-              onMouseLeave={ev => (ev.currentTarget.style.background = e.rl === "DANGER" ? `${C.danger}07` : "transparent")}>
-              <td className="px-4 py-3 font-mono font-semibold" style={{ color: C.blue }}>{e.id}</td>
-              <td className="px-4 py-3 whitespace-nowrap" style={{ color: t.muted }}>{e.at}</td>
-              <td className="px-4 py-3"><RiskBadge level={e.rl} /></td>
-              <td className="px-4 py-3 font-mono" style={{ color: t.textSub }}>{e.sensor}</td>
-              <td className="px-4 py-3" style={{ color: t.muted }}>{e.rt}</td>
-              <td className="px-4 py-3 font-semibold" style={{ color: t.text }}>{e.mm ?? "—"}</td>
-              <td className="px-4 py-3 font-mono" style={{ color: t.muted }}>{e.lat?.toFixed(4) ?? "—"}</td>
-              <td className="px-4 py-3 font-mono" style={{ color: t.muted }}>{e.lng?.toFixed(4) ?? "—"}</td>
-              <td className="px-4 py-3 font-mono text-[11px]" style={{ color: t.muted }}>{e.dev}</td>
-              <td className="px-4 py-3" style={{ color: t.muted }}>{e.trip}</td>
-            </tr>
-          ))}
+          {events.map((e) => {
+            const riskTypeLabel =
+              e.rt && e.rt !== "—" && e.rt !== "-"
+                ? e.rt
+                : getRiskTypeLabel(e.sensor);
+
+            const deviceLabel =
+              e.dev && e.dev !== "—" && e.dev !== "-"
+                ? e.dev
+                : "DG-ESP32-001";
+
+            return (
+              <tr
+                key={e.id}
+                onClick={() => onRowClick(e.id)}
+                className="cursor-pointer transition-colors"
+                style={{
+                  borderBottom: `1px solid ${t.border}`,
+                  background:
+                    e.rl === "DANGER" ? `${C.danger}07` : "transparent",
+                }}
+                onMouseEnter={(ev) =>
+                (ev.currentTarget.style.background =
+                  e.rl === "DANGER" ? `${C.danger}12` : t.bgSub)
+                }
+                onMouseLeave={(ev) =>
+                (ev.currentTarget.style.background =
+                  e.rl === "DANGER" ? `${C.danger}07` : "transparent")
+                }
+              >
+                <td
+                  className="px-4 py-3 font-mono font-semibold"
+                  style={{ color: C.blue }}
+                >
+                  {e.id}
+                </td>
+
+                <td
+                  className="px-4 py-3 whitespace-nowrap"
+                  style={{ color: t.muted }}
+                >
+                  {e.at}
+                </td>
+
+                <td className="px-4 py-3">
+                  <RiskBadge level={e.rl} />
+                </td>
+
+                <td
+                  className="px-4 py-3 font-mono"
+                  style={{ color: t.textSub }}
+                >
+                  {e.sensor}
+                </td>
+
+                <td className="px-4 py-3" style={{ color: t.muted }}>
+                  {riskTypeLabel}
+                </td>
+
+                <td
+                  className="px-4 py-3 font-semibold"
+                  style={{ color: t.text }}
+                >
+                  {e.mm ?? "—"}
+                </td>
+
+                <td
+                  className="px-4 py-3 font-mono"
+                  style={{ color: t.muted }}
+                >
+                  {e.lat?.toFixed(4) ?? "—"}
+                </td>
+
+                <td
+                  className="px-4 py-3 font-mono"
+                  style={{ color: t.muted }}
+                >
+                  {e.lng?.toFixed(4) ?? "—"}
+                </td>
+
+                <td
+                  className="px-4 py-3 font-mono text-[11px]"
+                  style={{ color: t.muted }}
+                >
+                  {deviceLabel}
+                </td>
+
+                <td className="px-4 py-3" style={{ color: t.muted }}>
+                  {e.trip}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
