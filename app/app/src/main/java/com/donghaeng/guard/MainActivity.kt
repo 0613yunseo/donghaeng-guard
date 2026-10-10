@@ -1,6 +1,11 @@
 package com.donghaeng.guard
 
 import android.os.Bundle
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.time.LocalDateTime
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.animateColorAsState
@@ -213,6 +218,54 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent { DongHaengGuardApp() }
+    }
+}
+suspend fun sendMockSensorEvent(
+    riskLevel: RiskLevel,
+    distanceMm: Int
+): String {
+    return withContext(Dispatchers.IO) {
+        val url = java.net.URL("http://10.0.2.2:8081/api/sensor-events")
+        val connection = url.openConnection() as java.net.HttpURLConnection
+
+        try {
+            connection.requestMethod = "POST"
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.setRequestProperty("Accept", "application/json")
+            connection.doOutput = true
+
+            val body = """
+                {
+                  "tripId": 1,
+                  "deviceId": "DG-ESP32-001",
+                  "sensorType": "ULTRASONIC",
+                  "riskLevel": "${riskLevel.name}",
+                  "latitude": 37.5665,
+                  "longitude": 126.9780,
+                  "detectedAt": "${LocalDateTime.now().withNano(0)}",
+                  "sensorId": 1,
+                  "distanceMm": $distanceMm
+                }
+            """.trimIndent()
+
+            java.io.OutputStreamWriter(connection.outputStream).use { writer ->
+                writer.write(body)
+                writer.flush()
+            }
+
+            val statusCode = connection.responseCode
+
+            if (statusCode in 200..299) {
+                "전송 성공: HTTP $statusCode"
+            } else {
+                val errorBody = connection.errorStream?.bufferedReader()?.readText()
+                "전송 실패: HTTP $statusCode / $errorBody"
+            }
+        } catch (e: Exception) {
+            "전송 실패: ${e.message}"
+        } finally {
+            connection.disconnect()
+        }
     }
 }
 
@@ -955,6 +1008,8 @@ fun MainDrivingScreen(
     onNavigate: (Screen) -> Unit
 ) {
     var showEndDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     val animBg by animateColorAsState(targetValue = riskBg(riskLevel), animationSpec = tween(300), label = "bg")
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
@@ -1105,15 +1160,28 @@ fun MainDrivingScreen(
                 OutlinedButton(
                     onClick = {
                         val levels = RiskLevel.values()
-                        val dists  = listOf(1250, 450, 150)
-                        val next   = (riskLevel.ordinal + 1) % levels.size
-                        onRiskLevelChange(levels[next])
-                        onDistanceMmChange(dists[next])
+                        val dists = listOf(1250, 450, 150)
+                        val next = (riskLevel.ordinal + 1) % levels.size
+
+                        val nextRiskLevel = levels[next]
+                        val nextDistanceMm = dists[next]
+
+                        onRiskLevelChange(nextRiskLevel)
+                        onDistanceMmChange(nextDistanceMm)
+
+                        scope.launch {
+                            val result = sendMockSensorEvent(
+                                riskLevel = nextRiskLevel,
+                                distanceMm = nextDistanceMm
+                            )
+                            Toast.makeText(context, result, Toast.LENGTH_SHORT).show()
+                        }
                     },
                     modifier = Modifier.fillMaxWidth().height(46.dp),
                     shape = RoundedCornerShape(10.dp)
-                ) { Text("[데모] 임시 센서 데이터 전송", fontSize = 13.sp, color = AppColors.TextSub) }
-
+                ) {
+                    Text("[테스트] 백엔드로 센서 이벤트 전송", fontSize = 13.sp, color = AppColors.TextSub)
+                }
                 // 주행 종료
                 Button(
                     onClick = { showEndDialog = true },
