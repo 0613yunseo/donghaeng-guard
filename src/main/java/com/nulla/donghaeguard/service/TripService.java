@@ -52,7 +52,12 @@ public class TripService {
                 Trip trip = tripRepository.findById(tripId)
                                 .orElseThrow(() -> new RuntimeException("주행 세션을 찾을 수 없습니다."));
 
-                int eventCount = sensorEventRepository.findByTripTripId(tripId).size();
+                List<SensorEvent> events = sensorEventRepository.findByTripTripId(tripId);
+
+                int eventCount = events.size();
+
+
+                Trip.HighestRiskLevel highestRiskLevel = calculateHighestRiskLevel(events);
 
                 Trip updatedTrip = Trip.builder()
                                 .tripId(trip.getTripId())
@@ -62,7 +67,7 @@ public class TripService {
                                 .startedAt(trip.getStartedAt())
                                 .endedAt(request.getEndedAt())
                                 .eventCount(eventCount)
-                                .highestRiskLevel(trip.getHighestRiskLevel())
+                                .highestRiskLevel(highestRiskLevel)
                                 .build();
 
                 Trip saved = tripRepository.save(updatedTrip);
@@ -73,7 +78,33 @@ public class TripService {
                                 saved.getEventCount(),
                                 saved.getEndedAt());
         }
+        private Trip.HighestRiskLevel calculateHighestRiskLevel(List<SensorEvent> events) {
+                boolean hasWarning = false;
 
+                for (SensorEvent event : events) {
+                        if (event.getRiskLevel() == null) {
+                                continue;
+                        }
+
+                        if (event.getRiskLevel() == SensorEvent.RiskLevel.DANGER) {
+                                return Trip.HighestRiskLevel.DANGER;
+                        }
+
+                        if (event.getRiskLevel() == SensorEvent.RiskLevel.WARNING) {
+                                hasWarning = true;
+                        }
+                }
+
+                if (hasWarning) {
+                        return Trip.HighestRiskLevel.WARNING;
+                }
+
+                if (!events.isEmpty()) {
+                        return Trip.HighestRiskLevel.SAFE;
+                }
+
+                return null;
+        }
         @Transactional(readOnly = true)
         public TripSummaryResponse getTripSummary(Long tripId) {
                 Trip trip = tripRepository.findById(tripId)
