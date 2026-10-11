@@ -263,7 +263,84 @@ fun getCurrentLocation(context: Context): Pair<Double, Double>? {
 
     return null
 }
+suspend fun startTrip(): Long? {
+    return withContext(Dispatchers.IO) {
+        val url = java.net.URL("http://10.0.2.2:8081/api/trips/start")
+        val connection = url.openConnection() as java.net.HttpURLConnection
+
+        try {
+            connection.requestMethod = "POST"
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.setRequestProperty("Accept", "application/json")
+            connection.doOutput = true
+
+            val body = """
+                {
+                  "userId": 1,
+                  "deviceId": "DG-ESP32-001",
+                  "startedAt": "${LocalDateTime.now().withNano(0)}"
+                }
+            """.trimIndent()
+
+            java.io.OutputStreamWriter(connection.outputStream).use { writer ->
+                writer.write(body)
+                writer.flush()
+            }
+
+            val statusCode = connection.responseCode
+            val responseBody = if (statusCode in 200..299) {
+                connection.inputStream.bufferedReader().readText()
+            } else {
+                connection.errorStream?.bufferedReader()?.readText()
+            }
+
+            if (statusCode !in 200..299 || responseBody == null) {
+                return@withContext null
+            }
+
+            val regex = """"tripId"\s*:\s*(\d+)""".toRegex()
+            regex.find(responseBody)?.groupValues?.get(1)?.toLongOrNull()
+        } catch (e: Exception) {
+            null
+        } finally {
+            connection.disconnect()
+        }
+    }
+}
+
+suspend fun endTrip(tripId: Long): Boolean {
+    return withContext(Dispatchers.IO) {
+        val url = java.net.URL("http://10.0.2.2:8081/api/trips/$tripId/end")
+        val connection = url.openConnection() as java.net.HttpURLConnection
+
+        try {
+            connection.requestMethod = "PATCH"
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.setRequestProperty("Accept", "application/json")
+            connection.doOutput = true
+
+            val body = """
+                {
+                  "endedAt": "${LocalDateTime.now().withNano(0)}",
+                  "pendingEventCount": 0
+                }
+            """.trimIndent()
+
+            java.io.OutputStreamWriter(connection.outputStream).use { writer ->
+                writer.write(body)
+                writer.flush()
+            }
+
+            connection.responseCode in 200..299
+        } catch (e: Exception) {
+            false
+        } finally {
+            connection.disconnect()
+        }
+    }
+}
 suspend fun sendMockSensorEvent(
+    tripId: Long,
     riskLevel: RiskLevel,
     distanceMm: Int,
     latitude: Double,
@@ -281,7 +358,7 @@ suspend fun sendMockSensorEvent(
 
             val body = """
                 {
-                  "tripId": 1,
+                  "tripId": $tripId,
                   "deviceId": "DG-ESP32-001",
                   "sensorType": "ULTRASONIC",
                   "riskLevel": "${riskLevel.name}",
@@ -324,7 +401,7 @@ fun DongHaengGuardApp() {
     var tripActive by remember { mutableStateOf(false) }
     var riskLevel  by remember { mutableStateOf(RiskLevel.SAFE) }
     var distanceMm by remember { mutableStateOf(1250) }
-
+    var currentTripId by remember { mutableStateOf<Long?>(null) }
     val showBottomNav = screen == Screen.MainDriving ||
             screen == Screen.DrivingHistory ||
             screen == Screen.RiskZones
@@ -347,10 +424,11 @@ fun DongHaengGuardApp() {
                     Screen.Signup                -> SignupScreen               { screen = it }
                     Screen.SensorConnection      -> SensorConnectionScreen     { screen = it }
                     Screen.SensorManagement      -> SensorManagementScreen     { screen = it }
-                    Screen.MainDriving           -> MainDrivingScreen(
+                    Screen.MainDriving -> MainDrivingScreen(
                         tripActive, { tripActive = it },
-                        riskLevel,  { riskLevel  = it },
-                        distanceMm, { distanceMm = it }
+                        riskLevel, { riskLevel = it },
+                        distanceMm, { distanceMm = it },
+                        currentTripId, { currentTripId = it }
                     ) { screen = it }
                     Screen.TripEnd               -> TripEndScreen             { screen = it }
                     Screen.DrivingHistory        -> DrivingHistoryScreen       { screen = it }
@@ -1050,6 +1128,7 @@ fun MainDrivingScreen(
     tripActive:         Boolean,   onTripActiveChange: (Boolean) -> Unit,
     riskLevel:          RiskLevel, onRiskLevelChange:  (RiskLevel) -> Unit,
     distanceMm:         Int,       onDistanceMmChange: (Int) -> Unit,
+    currentTripId: Long?, onCurrentTripIdChange: (Long?) -> Unit,
     onNavigate: (Screen) -> Unit
 ) {
     var showEndDialog by remember { mutableStateOf(false) }
@@ -1085,12 +1164,39 @@ fun MainDrivingScreen(
             text  = { Text("주행을 종료하시겠습니까?\n주행 기록이 저장됩니다.", color = AppColors.TextSub) },
             confirmButton = {
                 TextButton(onClick = {
-                    onTripActiveChange(false)
-                    onRiskLevelChange(RiskLevel.SAFE)
-                    onDistanceMmChange(1250)
-                    showEndDialog = false
-                    onNavigate(Screen.TripEnd)
-                }) { Text("종료", color = AppColors.Danger, fontWeight = FontWeight.SemiBold) }
+                    scope.launch {
+                        val tripId = currentTripId
+
+                        if (tripId == null) {
+                            onTripActiveChange(false)
+                            onRiskLevelChange(RiskLevel.SAFE)
+                            onDistanceMmChange(1250)
+                            showEndDialog = false
+                            onNavigate(Screen.TripEnd)
+                            return@launch
+                        }
+
+                        val success = endTrip(tripId)
+
+                        if (!success) {
+                            Toast.makeText(
+                                context,
+                                "주행 종료 저장에 실패했습니다.",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                            return@launch
+                        }
+
+                        onCurrentTripIdChange(null)
+                        onTripActiveChange(false)
+                        onRiskLevelChange(RiskLevel.SAFE)
+                        onDistanceMmChange(1250)
+                        showEndDialog = false
+                        onNavigate(Screen.TripEnd)
+                    }
+                }) {
+                    Text("종료", color = AppColors.Danger, fontWeight = FontWeight.SemiBold)
+                }
             },
             dismissButton = {
                 TextButton(onClick = { showEndDialog = false }) { Text("계속 주행", color = AppColors.TextSub) }
@@ -1157,7 +1263,28 @@ fun MainDrivingScreen(
                     )
                     Spacer(Modifier.height(36.dp))
                     Button(
-                        onClick = { onTripActiveChange(true) },
+                        onClick = {
+        			scope.launch {
+            				val newTripId = startTrip()
+
+					if (newTripId == null) {
+                				Toast.makeText(
+                    					context,
+                    					"주행 시작에 실패했습니다.",
+                    					Toast.LENGTH_SHORT
+                				).show()
+                				return@launch
+            				}
+					onCurrentTripIdChange(newTripId)
+            				onTripActiveChange(true)
+
+					Toast.makeText(
+                				context,
+                				"주행을 시작했습니다. tripId=$newTripId",
+                				Toast.LENGTH_SHORT
+            				).show()
+        			}
+    			},
                         modifier = Modifier.fillMaxWidth().height(52.dp),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = AppColors.Primary)
@@ -1257,7 +1384,20 @@ fun MainDrivingScreen(
                                 return@launch
                             }
 
+                            val tripId = currentTripId
+
+                            if (tripId == null) {
+                                Toast.makeText(
+                                    context,
+                                    "주행을 먼저 시작해주세요.",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+
+                                return@launch
+                            }
+
                             val result = sendMockSensorEvent(
+                                tripId = tripId,
                                 riskLevel = nextRiskLevel,
                                 distanceMm = nextDistanceMm,
                                 latitude = currentLocation.first,
