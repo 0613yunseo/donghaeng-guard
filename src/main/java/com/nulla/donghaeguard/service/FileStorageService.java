@@ -29,8 +29,12 @@ public class FileStorageService {
 
     public String store(MultipartFile file) {
         try {
+            String original = file.getOriginalFilename();
+            String ext = (original != null && original.contains("."))
+                    ? original.substring(original.lastIndexOf('.')).toLowerCase()
+                    : ".jpg";
             String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
-            String filename = timestamp + "_" + UUID.randomUUID().toString().substring(0, 8) + ".jpg";
+            String filename = timestamp + "_" + UUID.randomUUID().toString().substring(0, 8) + ext;
             Path target = uploadDir.resolve(filename);
 
             try (InputStream in = file.getInputStream()) {

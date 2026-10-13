@@ -46,4 +46,10 @@ public class Trip {
     public enum HighestRiskLevel {
         SAFE, WARNING, DANGER
     }
+
+    private String videoUrl;
+
+    public void updateVideoUrl(String videoUrl) {
+        this.videoUrl = videoUrl;
+    }
 }

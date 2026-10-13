@@ -194,4 +194,11 @@ public class TripService {
                 imageUrl
         );
     }
+
+    @Transactional
+    public void updateVideoUrl(Long tripId, String videoUrl) {
+        Trip trip = tripRepository.findById(tripId)
+                .orElseThrow(() -> new RuntimeException("주행 세션을 찾을 수 없습니다."));
+        trip.updateVideoUrl(videoUrl);
+    }
 }
