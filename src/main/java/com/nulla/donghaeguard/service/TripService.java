@@ -56,7 +56,6 @@ public class TripService {
 
                 int eventCount = events.size();
 
-
                 Trip.HighestRiskLevel highestRiskLevel = calculateHighestRiskLevel(events);
 
                 Trip updatedTrip = Trip.builder()
@@ -78,6 +77,7 @@ public class TripService {
                                 saved.getEventCount(),
                                 saved.getEndedAt());
         }
+
         private Trip.HighestRiskLevel calculateHighestRiskLevel(List<SensorEvent> events) {
                 boolean hasWarning = false;
 
@@ -105,6 +105,7 @@ public class TripService {
 
                 return null;
         }
+
         @Transactional(readOnly = true)
         public TripSummaryResponse getTripSummary(Long tripId) {
                 Trip trip = tripRepository.findById(tripId)
@@ -139,7 +140,9 @@ public class TripService {
                                                 trip.getTripStatus().name(),
                                                 trip.getEventCount(),
                                                 trip.getHighestRiskLevel() != null ? trip.getHighestRiskLevel().name()
-                                                                : null))
+                                                                : null,
+                                                trip.getDevice() != null ? trip.getDevice().getDeviceId() : null,
+                                                trip.getDevice() != null ? trip.getDevice().getDeviceName() : null))
                                 .toList();
         }
 
