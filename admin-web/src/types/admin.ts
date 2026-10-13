@@ -22,9 +22,9 @@ export interface RiskEvent {
   rl: RiskLevel;
   sensor: string;
   rt: string;
-  mm: number;
-  lat: number;
-  lng: number;
+  mm: number | null;
+  lat: number | null;
+  lng: number | null;
   dev: string;
   trip: string;
   user: string;
@@ -48,7 +48,7 @@ export interface Trip {
   start: string;
   end: string;
   cnt: number;
-  rl: RiskLevel;
+  rl: RiskLevel | null;
 }
 
 export interface Device {

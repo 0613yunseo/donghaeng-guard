@@ -4,13 +4,24 @@ import { useApp } from "../contexts/AppContext";
 import { C } from "../constants/colors";
 import { Card, CardHead, PrimaryBtn, OutlineBtn } from "../components/ui";
 import { RiskBadge } from "../components/badges/RiskBadge";
-import { EVENTS } from "../mocks/adminMockData";
+import { useTripDetail } from "../hooks/useTripDetail";
 
 export function EventDetail() {
   const { t, selId, onNav } = useApp();
-  const e = EVENTS.find(x => x.id === selId) ?? EVENTS[0];
-  const isDanger = e.rl === "DANGER";
+  const { events, loading, error } = useTripDetail();
   const [zoom, setZoom] = useState(1);
+  const e = events.find(x => x.id === selId);
+
+  if (loading || error || !e) {
+    return <Card>
+      <CardHead title="이벤트 상세 정보" />
+      <p role={error ? "alert" : "status"} className="p-5 text-sm" style={{ color: t.muted }}>
+        {loading ? "센서 이벤트를 불러오는 중입니다." : error ?? "해당 이벤트가 주행 1번에 없습니다."}
+      </p>
+      <div className="p-5"><OutlineBtn icon={ArrowLeft} onClick={() => onNav("events")}>목록으로 돌아가기</OutlineBtn></div>
+    </Card>;
+  }
+  const isDanger = e.rl === "DANGER";
 
   const fields: Array<{ l: string; v: React.ReactNode }> = [
     { l: "이벤트 ID",  v: e.id      },
@@ -20,9 +31,9 @@ export function EventDetail() {
     { l: "센서 종류",  v: e.sensor  },
     { l: "위험 유형",  v: e.rt      },
     { l: "위험 단계",  v: <RiskBadge level={e.rl} /> },
-    { l: "감지 거리",  v: `${e.mm} mm` },
-    { l: "위도",        v: e.lat.toFixed(6) },
-    { l: "경도",        v: e.lng.toFixed(6) },
+    { l: "감지 거리",  v: e.mm == null ? "—" : `${e.mm} mm` },
+    { l: "위도",        v: (e.lat?.toFixed(6) ?? "—") },
+    { l: "경도",        v: (e.lng?.toFixed(6) ?? "—") },
     { l: "감지 시각",  v: e.at      },
   ];
 
@@ -68,7 +79,7 @@ export function EventDetail() {
 
         {/* Map */}
         <Card>
-          <CardHead title="위치 정보" sub={`${e.lat.toFixed(6)}, ${e.lng.toFixed(6)}`} />
+          <CardHead title="위치 정보" sub={`${(e.lat?.toFixed(6) ?? "—")}, ${(e.lng?.toFixed(6) ?? "—")}`} />
           <div className="p-4">
             <div className="relative rounded-xl overflow-hidden"
               style={{ height: 290, background: "linear-gradient(150deg,#0d1e38,#071424)" }}>
@@ -101,7 +112,7 @@ export function EventDetail() {
 
               <div className="absolute bottom-3 left-3 rounded-lg px-2.5 py-1.5 text-[10px] font-mono"
                 style={{ background: "rgba(0,0,0,0.6)", color: "rgba(255,255,255,0.85)" }}>
-                {e.lat.toFixed(6)}, {e.lng.toFixed(6)}
+                {(e.lat?.toFixed(6) ?? "—")}, {(e.lng?.toFixed(6) ?? "—")}
               </div>
               <div className="absolute bottom-3 right-3 flex flex-col gap-1">
                 <button onClick={() => setZoom(z => Math.min(3, +(z + 0.5).toFixed(1)))}
