@@ -1,5 +1,6 @@
 package com.nulla.donghaeguard.service;
 
+import com.nulla.donghaeguard.controller.LocationController;
 import com.nulla.donghaeguard.dto.request.SensorEventRequest;
 import com.nulla.donghaeguard.dto.response.SensorEventResponse;
 import com.nulla.donghaeguard.entity.*;
@@ -29,14 +30,24 @@ public class SensorEventService {
         Device device = deviceRepository.findById(request.getDeviceId())
                 .orElseThrow(() -> new RuntimeException("디바이스를 찾을 수 없습니다."));
 
+        // 앱에서 보낸 최신 GPS 우선 사용, 없으면 request 값 사용
+        double latitude = request.getLatitude();
+        double longitude = request.getLongitude();
+
+        double[] loc = LocationController.getLatestLocation(request.getTripId());
+        if (loc[0] != 0.0 && loc[1] != 0.0) {
+            latitude = loc[0];
+            longitude = loc[1];
+        }
+
         // 공통 SensorEvent 저장
         SensorEvent sensorEvent = SensorEvent.builder()
                 .trip(trip)
                 .device(device)
                 .sensorType(SensorEvent.SensorType.valueOf(request.getSensorType()))
                 .riskLevel(SensorEvent.RiskLevel.valueOf(request.getRiskLevel()))
-                .latitude(request.getLatitude())
-                .longitude(request.getLongitude())
+                .latitude(latitude)
+                .longitude(longitude)
                 .detectedAt(request.getDetectedAt())
                 .build();
 
