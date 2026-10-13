@@ -6,9 +6,11 @@ import com.nulla.donghaeguard.dto.request.TripStartRequest;
 import com.nulla.donghaeguard.dto.response.*;
 import com.nulla.donghaeguard.service.TripService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/trips")
@@ -54,4 +56,12 @@ public class TripController {
         TripDetailResponse response = tripService.getTripDetail(tripId);
         return ApiResponse.ok(response);
     }
+
+    @PatchMapping("/{tripId}/video")
+    public ResponseEntity<Void> updateVideo(@PathVariable Long tripId,
+                                            @RequestBody Map<String, String> body) {
+        tripService.updateVideoUrl(tripId, body.get("videoUrl"));
+        return ResponseEntity.ok().build();
+    }
+
 }
