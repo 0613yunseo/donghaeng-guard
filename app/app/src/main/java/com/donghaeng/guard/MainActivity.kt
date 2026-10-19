@@ -91,7 +91,7 @@ import kotlinx.coroutines.launch
 import org.json.JSONObject
 
 //백엔드 포트 관리
-const val API_BASE_URL = "http://172.18.36.85:8081"
+const val API_BASE_URL = "http://10.0.2.2:8081"
 // ══════════════════════════════════════════════════════════════════════
 // 색상 시스템 (theme.css → AppColors)
 // ══════════════════════════════════════════════════════════════════════
@@ -140,7 +140,22 @@ sealed class Screen {
 // 위험 단계 모델
 // ══════════════════════════════════════════════════════════════════════
 enum class RiskLevel { SAFE, WARNING, DANGER }
+data class AiAnalysisResult(
+    val riskGrade: String,
+    val riskScore: Int,
+    val reason: String,
+    val recommendedAction: String
+)
+fun parseAiAnalysisResult(json: String): AiAnalysisResult {
+    val data = JSONObject(json)
 
+    return AiAnalysisResult(
+        riskGrade = data.getString("riskGrade"),
+        riskScore = data.getInt("riskScore"),
+        reason = data.getString("reason"),
+        recommendedAction = data.getString("recommendedAction")
+    )
+}
 fun riskColor(l: RiskLevel) = when (l) {
     RiskLevel.SAFE    -> AppColors.Safe
     RiskLevel.WARNING -> AppColors.Warning
@@ -1191,6 +1206,26 @@ fun MainDrivingScreen(
     currentTripId: Long?, onCurrentTripIdChange: (Long?) -> Unit,
     onNavigate: (Screen) -> Unit
 ) {
+    var aiResult by remember {
+        mutableStateOf<AiAnalysisResult?>(null)
+    }
+
+    LaunchedEffect(tripActive, currentTripId) {
+        if (tripActive && currentTripId != null) {
+            val mockJson = """
+            {
+                "riskGrade": "WARNING",
+                "riskScore": 68,
+                "reason": "전방 장애물과의 거리가 가까워 충돌 위험이 있습니다.",
+                "recommendedAction": "속도를 줄이고 전방 장애물을 확인하세요."
+            }
+        """.trimIndent()
+
+            aiResult = parseAiAnalysisResult(mockJson)
+        } else {
+            aiResult = null
+        }
+    }
     var showEndDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -1374,8 +1409,8 @@ fun MainDrivingScreen(
         Column(
             modifier = Modifier
                 .weight(1f)
-                .padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             if (!tripActive) {
                 Column(
@@ -1462,13 +1497,13 @@ fun MainDrivingScreen(
                         .clip(RoundedCornerShape(16.dp))
                         .background(animBg)
                         .border(2.dp, riskColor(riskLevel), RoundedCornerShape(16.dp))
-                        .padding(24.dp),
+                        .padding(34.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Box(
                             modifier = Modifier
-                                .size(88.dp)
+                                .size(64.dp)
                                 .clip(CircleShape)
                                 .background(riskColor(riskLevel).copy(alpha = 0.15f))
                                 .border(3.dp, riskColor(riskLevel), CircleShape),
@@ -1480,7 +1515,7 @@ fun MainDrivingScreen(
                                     RiskLevel.WARNING -> "▲"
                                     RiskLevel.DANGER -> "!"
                                 },
-                                fontSize = 40.sp,
+                                fontSize = 30.sp,
                                 color = riskColor(riskLevel),
                                 fontWeight = FontWeight.ExtraBold
                             )
@@ -1490,7 +1525,7 @@ fun MainDrivingScreen(
 
                         Text(
                             riskLabel(riskLevel),
-                            fontSize = 32.sp,
+                            fontSize = 26.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = riskColor(riskLevel)
                         )
@@ -1504,7 +1539,7 @@ fun MainDrivingScreen(
                             textAlign = TextAlign.Center
                         )
 
-                        Spacer(Modifier.height(16.dp))
+                        Spacer(Modifier.height(10.dp))
 
                         Box(
                             modifier = Modifier
@@ -1512,7 +1547,7 @@ fun MainDrivingScreen(
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(AppColors.Card.copy(alpha = 0.8f))
                                 .border(1.dp, AppColors.Border, RoundedCornerShape(12.dp))
-                                .padding(16.dp),
+                                .padding(12.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1522,12 +1557,13 @@ fun MainDrivingScreen(
                                     color = AppColors.TextSub
                                 )
 
+
                                 Spacer(Modifier.height(4.dp))
 
                                 Row(verticalAlignment = Alignment.Bottom) {
                                     Text(
                                         "$distanceMm",
-                                        fontSize = 38.sp,
+                                        fontSize = 32.sp,
                                         fontWeight = FontWeight.Bold,
                                         fontFamily = FontFamily.Monospace,
                                         color = AppColors.Text
@@ -1542,6 +1578,63 @@ fun MainDrivingScreen(
                                 }
                             }
                         }
+                    }
+                }
+
+                // AI 분석 결과 카드
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = AppColors.Card
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "AI 분석 결과",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = AppColors.Text
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+
+                            Text(
+                                text = "AI 위험 등급: ${aiResult?.riskGrade ?: "-"} · ${aiResult?.riskScore ?: "-"}점",
+                                fontSize = 12.sp,
+                                color = AppColors.Text,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        Text(
+                            text = "판정: ${aiResult?.reason ?: "AI 분석 결과 대기 중"}",
+                            fontSize = 12.sp,
+                            color = AppColors.Text,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+
+                        Text(
+                            text = "권장: ${aiResult?.recommendedAction ?: "분석 결과가 아직 없습니다."}",
+                            fontSize = 12.sp,
+                            color = AppColors.Text,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+
+                        Text(
+                            text = "AI 테스트용 예시 데이터",
+                            fontSize = 10.sp,
+                            color = AppColors.TextSub
+                        )
                     }
                 }
 
