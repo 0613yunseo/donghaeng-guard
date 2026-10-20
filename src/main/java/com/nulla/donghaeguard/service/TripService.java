@@ -141,11 +141,11 @@ public class TripService {
     private SensorEventDetailResponse toSensorEventDetailResponse(SensorEvent e) {
         Integer sensorId = null;
         Integer distanceMm = null;
-        Float pitch = null;
+        Double pitch = null;
         String slopeStatus = null;
         String detectedObject = null;
-        Float confidence = null;
-        Float stdDev = null;
+        Double confidence = null;
+        Double stdDev = null;
         String imageUrl = null;
 
         switch (e.getSensorType()) {
@@ -194,6 +194,18 @@ public class TripService {
                 imageUrl
         );
     }
+    @Transactional(readOnly = true)
+    public TripStartResponse getLatestTrip(Long userId) {
+        Trip trip = tripRepository
+                .findTopByUserUserIdAndTripStatusOrderByStartedAtDesc(userId, Trip.TripStatus.STARTED)
+                .orElseThrow(() -> new RuntimeException("진행 중인 주행이 없습니다."));
+
+        return new TripStartResponse(
+                trip.getTripId(),
+                trip.getTripStatus().name(),
+                trip.getStartedAt()
+        );
+    }
 
     @Transactional
     public void updateVideoUrl(Long tripId, String videoUrl) {
@@ -201,4 +213,5 @@ public class TripService {
                 .orElseThrow(() -> new RuntimeException("주행 세션을 찾을 수 없습니다."));
         trip.updateVideoUrl(videoUrl);
     }
+
 }

@@ -39,11 +39,11 @@ public class AiService {
     private AiDataResponse toAiDataResponse(SensorEvent e) {
         Integer sensorId = null;
         Integer distanceMm = null;
-        Float pitch = null;
+        Double pitch = null;
         String slopeStatus = null;
         String detectedObject = null;
-        Float confidence = null;
-        Float stdDev = null;
+        Double confidence = null;
+        Double stdDev = null;
         String imageUrl = null;
 
         switch (e.getSensorType()) {
