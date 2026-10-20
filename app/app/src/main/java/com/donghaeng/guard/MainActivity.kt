@@ -126,7 +126,7 @@ sealed class Screen {
     object SensorConnection      : Screen()
     object SensorManagement      : Screen()
     object MainDriving           : Screen()
-    object TripEnd               : Screen()
+    data class TripEnd(val tripId: Long) : Screen()
     object DrivingHistory        : Screen()
     data class DrivingDetail(val tripId: String) : Screen()
     object RiskZones             : Screen()
@@ -281,7 +281,7 @@ fun getCurrentLocation(context: Context): Pair<Double, Double>? {
 
     return null
 }
-suspend fun startTrip(): Long? {
+suspend fun startTrip(deviceId: String): Long? {
     return withContext(Dispatchers.IO) {
         val url = java.net.URL("$API_BASE_URL/api/trips/start")
         val connection = url.openConnection() as java.net.HttpURLConnection
@@ -295,10 +295,11 @@ suspend fun startTrip(): Long? {
             val body = """
                 {
                   "userId": 1,
-                  "deviceId": "DG-ESP32-001",
+                  "deviceId": "$deviceId",
                   "startedAt": "${LocalDateTime.now().withNano(0)}"
                 }
             """.trimIndent()
+            android.util.Log.d("TRIP_START", "요청 JSON=$body")
 
             java.io.OutputStreamWriter(connection.outputStream).use { writer ->
                 writer.write(body)
@@ -312,6 +313,11 @@ suspend fun startTrip(): Long? {
                 connection.errorStream?.bufferedReader()?.readText()
             }
 
+            android.util.Log.d(
+                "TRIP_START",
+                "HTTP=$statusCode, response=$responseBody"
+            )
+
             if (statusCode !in 200..299 || responseBody == null) {
                 return@withContext null
             }
@@ -319,8 +325,9 @@ suspend fun startTrip(): Long? {
             val regex = """"tripId"\s*:\s*(\d+)""".toRegex()
             regex.find(responseBody)?.groupValues?.get(1)?.toLongOrNull()
         } catch (e: Exception) {
+            android.util.Log.e("TRIP_START", "주행 시작 API 오류", e)
             null
-        } finally {
+        }finally {
             connection.disconnect()
         }
     }
@@ -357,8 +364,11 @@ suspend fun endTrip(tripId: Long): Boolean {
         }
     }
 }
+
+
 suspend fun sendMockSensorEvent(
     tripId: Long,
+    deviceId: String,
     riskLevel: RiskLevel,
     distanceMm: Int,
     latitude: Double,
@@ -377,7 +387,7 @@ suspend fun sendMockSensorEvent(
             val body = """
                 {
                   "tripId": $tripId,
-                  "deviceId": "DG-ESP32-001",
+                  "deviceId": "$deviceId",
                   "sensorType": "ULTRASONIC",
                   "riskLevel": "${riskLevel.name}",
                   "latitude": $latitude,
@@ -421,6 +431,7 @@ fun DongHaengGuardApp() {
     var riskLevel  by remember { mutableStateOf(RiskLevel.SAFE) }
     var distanceMm by remember { mutableStateOf(1250) }
     var currentTripId by remember { mutableStateOf<Long?>(null) }
+    var selectedDeviceId by remember { mutableStateOf<String?>(null) }
     val showBottomNav = screen == Screen.MainDriving ||
             screen == Screen.DrivingHistory ||
             screen == Screen.RiskZones
@@ -441,15 +452,19 @@ fun DongHaengGuardApp() {
                     Screen.Login                 -> LoginScreen                { screen = it }
                     Screen.LoginForm             -> LoginFormScreen            { screen = it }
                     Screen.Signup                -> SignupScreen               { screen = it }
-                    Screen.SensorConnection      -> SensorConnectionScreen     { screen = it }
+                    Screen.SensorConnection -> SensorConnectionScreen(
+                        onDeviceSelected = { selectedDeviceId = it },
+                        onNavigate = { screen = it }
+                    )
                     Screen.SensorManagement      -> SensorManagementScreen     { screen = it }
                     Screen.MainDriving -> MainDrivingScreen(
                         tripActive, { tripActive = it },
                         riskLevel, { riskLevel = it },
                         distanceMm, { distanceMm = it },
-                        currentTripId, { currentTripId = it }
+                        currentTripId, { currentTripId = it },
+                        selectedDeviceId
                     ) { screen = it }
-                    Screen.TripEnd               -> TripEndScreen             { screen = it }
+                    is Screen.TripEnd -> TripEndScreen(s.tripId) { screen = it }
                     Screen.DrivingHistory        -> DrivingHistoryScreen       { screen = it }
                     is Screen.DrivingDetail      -> DrivingDetailScreen(s.tripId) { screen = it }
                     Screen.RiskZones             -> RiskZonesScreen           { screen = it }
@@ -844,18 +859,88 @@ fun SignupScreen(onNavigate: (Screen) -> Unit) {
 // ══════════════════════════════════════════════════════════════════════
 // 5. 센서 연결 화면
 // ══════════════════════════════════════════════════════════════════════
+data class ServerDevice(
+    val deviceId: String,
+    val deviceStatus: String
+)
+
+suspend fun fetchRegisteredDevices(userId: Long = 1L): List<ServerDevice> {
+    return withContext(Dispatchers.IO) {
+        val url = java.net.URL("$API_BASE_URL/api/devices?userId=$userId")
+        val connection = url.openConnection() as java.net.HttpURLConnection
+
+        try {
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("Accept", "application/json")
+            connection.connectTimeout = 5000
+            connection.readTimeout = 5000
+
+            val statusCode = connection.responseCode
+
+            if (statusCode !in 200..299) {
+                throw IllegalStateException("디바이스 조회 실패 (HTTP $statusCode)")
+            }
+
+            val response = connection.inputStream.bufferedReader().use {
+                it.readText()
+            }
+
+            val json = JSONObject(response)
+
+            if (!json.optBoolean("success", false)) {
+                throw IllegalStateException(
+                    json.optString("message", "디바이스 조회에 실패했습니다.")
+                )
+            }
+
+            val array = json.getJSONArray("data")
+
+            List(array.length()) { index ->
+                val item = array.getJSONObject(index)
+
+                ServerDevice(
+                    deviceId = item.getString("deviceId"),
+                    deviceStatus = item.optString("deviceStatus", "UNKNOWN")
+                )
+            }
+        } finally {
+            connection.disconnect()
+        }
+    }
+}
+
 enum class ConnStatus { IDLE, SEARCHING, FOUND, CONNECTING, CONNECTED, FAILED }
 
 @Composable
-fun SensorConnectionScreen(onNavigate: (Screen) -> Unit) {
+fun SensorConnectionScreen(
+    onDeviceSelected: (String) -> Unit,
+    onNavigate: (Screen) -> Unit
+) {
     var status by remember { mutableStateOf(ConnStatus.IDLE) }
-    val scope  = rememberCoroutineScope()
+    val scope = rememberCoroutineScope()
 
-    val mockDevices = listOf(
-        Pair("DongHaeng-ESP32-A1B2", -45),
-        Pair("DongHaeng-ESP32-C3D4", -60),
-    )
+    var devices by remember { mutableStateOf<List<ServerDevice>>(emptyList()) }
+    var selectedDevice by remember { mutableStateOf<ServerDevice?>(null) }
+    var errorMessage by remember { mutableStateOf("") }
 
+    fun searchDevices() {
+        status = ConnStatus.SEARCHING
+        errorMessage = ""
+
+        scope.launch {
+            try {
+                val result = fetchRegisteredDevices()
+                devices = result
+                status = ConnStatus.FOUND
+            } catch (e: Exception) {
+                errorMessage = e.message ?: "디바이스 조회에 실패했습니다."
+                status = ConnStatus.FAILED
+            }
+        }
+    }
+    LaunchedEffect(Unit) {
+        searchDevices()
+    }
     // 연결 완료 후 자동 이동
     LaunchedEffect(status) {
         if (status == ConnStatus.CONNECTED) {
@@ -880,7 +965,7 @@ fun SensorConnectionScreen(onNavigate: (Screen) -> Unit) {
                     Spacer(Modifier.height(20.dp))
                     Text("센서를 연결하세요", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text)
                     Spacer(Modifier.height(8.dp))
-                    Text("주변의 동행가드 센서 모듈을 검색합니다", fontSize = 14.sp, color = AppColors.TextSub)
+                    Text("서버에 등록된 동행가드 센서를 조회합니다", fontSize = 14.sp, color = AppColors.TextSub)
                     Spacer(Modifier.height(32.dp))
                     Button(
                         onClick = {
@@ -906,7 +991,7 @@ fun SensorConnectionScreen(onNavigate: (Screen) -> Unit) {
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        if (status == ConnStatus.SEARCHING) "주변의 BLE 디바이스를 찾고 있습니다" else "잠시만 기다려 주세요",
+                        if (status == ConnStatus.SEARCHING) "서버에 등록된 센서를 조회하고 있습니다" else "잠시만 기다려 주세요",
                         fontSize = 14.sp, color = AppColors.TextSub
                     )
                 }
@@ -916,14 +1001,12 @@ fun SensorConnectionScreen(onNavigate: (Screen) -> Unit) {
                     Spacer(Modifier.height(4.dp))
                     Text("연결할 센서를 선택하세요", fontSize = 13.sp, color = AppColors.TextSub)
                     Spacer(Modifier.height(16.dp))
-                    mockDevices.forEach { (name, rssi) ->
+                    devices.forEach { device ->
                         Card(
                             modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp).clickable {
-                                status = ConnStatus.CONNECTING
-                                scope.launch {
-                                    delay(2000)
-                                    status = ConnStatus.CONNECTED
-                                }
+                                selectedDevice = device
+                                onDeviceSelected(device.deviceId)
+                                status = ConnStatus.CONNECTED
                             },
                             colors = CardDefaults.cardColors(containerColor = AppColors.Card),
                             shape = RoundedCornerShape(12.dp),
@@ -933,19 +1016,26 @@ fun SensorConnectionScreen(onNavigate: (Screen) -> Unit) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text("📶", fontSize = 20.sp)
                                     Spacer(Modifier.width(12.dp))
-                                    Text(name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text)
+                                    Text(
+                                        device.deviceId,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = AppColors.Text
+                                    )
                                 }
                                 Spacer(Modifier.height(4.dp))
-                                Text("신호 세기: $rssi dBm", fontSize = 12.sp, color = AppColors.TextSub, modifier = Modifier.padding(start = 32.dp))
+                                Text(
+                                    "서버 등록 상태: ${device.deviceStatus}",
+                                    fontSize = 12.sp,
+                                    color = AppColors.TextSub,
+                                    modifier = Modifier.padding(start = 32.dp)
+                                )
                             }
                         }
                     }
                     Spacer(Modifier.height(8.dp))
                     OutlinedButton(
-                        onClick = {
-                            status = ConnStatus.SEARCHING
-                            scope.launch { delay(2000); status = ConnStatus.FOUND }
-                        },
+                        onClick = { searchDevices() },
                         modifier = Modifier.fillMaxWidth().height(44.dp),
                         shape = RoundedCornerShape(10.dp)
                     ) { Text("다시 검색", color = AppColors.Text) }
@@ -1204,6 +1294,7 @@ fun MainDrivingScreen(
     riskLevel: RiskLevel, onRiskLevelChange: (RiskLevel) -> Unit,
     distanceMm: Int, onDistanceMmChange: (Int) -> Unit,
     currentTripId: Long?, onCurrentTripIdChange: (Long?) -> Unit,
+    selectedDeviceId: String?,
     onNavigate: (Screen) -> Unit
 ) {
     var aiResult by remember {
@@ -1290,11 +1381,14 @@ fun MainDrivingScreen(
                             val tripId = currentTripId
 
                             if (tripId == null) {
-                                onTripActiveChange(false)
-                                onRiskLevelChange(RiskLevel.SAFE)
-                                onDistanceMmChange(1250)
                                 showEndDialog = false
-                                onNavigate(Screen.TripEnd)
+
+                                Toast.makeText(
+                                    context,
+                                    "종료할 주행 정보가 없습니다.",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+
                                 return@launch
                             }
 
@@ -1314,7 +1408,7 @@ fun MainDrivingScreen(
                             onRiskLevelChange(RiskLevel.SAFE)
                             onDistanceMmChange(1250)
                             showEndDialog = false
-                            onNavigate(Screen.TripEnd)
+                            onNavigate(Screen.TripEnd(tripId))
                         }
                     }
                 ) {
@@ -1453,7 +1547,18 @@ fun MainDrivingScreen(
                     Button(
                         onClick = {
                             scope.launch {
-                                val newTripId = startTrip()
+                                val deviceId = selectedDeviceId
+
+                                if (deviceId == null) {
+                                    Toast.makeText(
+                                        context,
+                                        "먼저 센서를 선택해주세요.",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                    return@launch
+                                }
+
+                                val newTripId = startTrip(deviceId)
 
                                 if (newTripId == null) {
                                     Toast.makeText(
@@ -1694,14 +1799,26 @@ fun MainDrivingScreen(
                                 return@launch
                             }
 
+                            val deviceId = selectedDeviceId
+
+                            if (deviceId == null) {
+                                Toast.makeText(
+                                    context,
+                                    "선택한 센서가 없습니다.",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                                return@launch
+                            }
+
+
                             val result = sendMockSensorEvent(
                                 tripId = tripId,
+                                deviceId = deviceId,
                                 riskLevel = nextRiskLevel,
                                 distanceMm = nextDistanceMm,
                                 latitude = currentLocation.first,
                                 longitude = currentLocation.second
                             )
-
                             Toast.makeText(context, result, Toast.LENGTH_SHORT).show()
                         }
                     },
@@ -1740,8 +1857,123 @@ fun MainDrivingScreen(
 // ══════════════════════════════════════════════════════════════════════
 // 8. 주행 종료 화면
 // ══════════════════════════════════════════════════════════════════════
+
+data class TripEndSummary(
+    val duration: String,
+    val totalCount: Int,
+    val dangerCount: Int,
+    val warningCount: Int,
+    val safeCount: Int,
+    val highestRiskLevel: String?
+)
+
+suspend fun fetchTripEndSummary(tripId: Long): TripEndSummary {
+    return withContext(Dispatchers.IO) {
+        val url = java.net.URL("$API_BASE_URL/api/trips/$tripId")
+        val connection = url.openConnection() as java.net.HttpURLConnection
+
+        try {
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("Accept", "application/json")
+            connection.connectTimeout = 5000
+            connection.readTimeout = 10000
+
+            if (connection.responseCode !in 200..299) {
+                throw IllegalStateException("주행 조회 실패: HTTP ${connection.responseCode}")
+            }
+
+            val responseBody = connection.inputStream
+                .bufferedReader()
+                .use { it.readText() }
+
+            val root = JSONObject(responseBody)
+
+            if (!root.optBoolean("success", false)) {
+                throw IllegalStateException(
+                    root.optString("message", "주행 데이터를 조회할 수 없습니다.")
+                )
+            }
+
+            val data = root.getJSONObject("data")
+
+            if (data.getString("status") != "ENDED") {
+                throw IllegalStateException("아직 종료되지 않은 주행입니다.")
+            }
+
+            val startedAt = LocalDateTime.parse(data.getString("startedAt"))
+            val endedAt = LocalDateTime.parse(data.getString("endedAt"))
+
+            val durationSeconds = java.time.Duration
+                .between(startedAt, endedAt)
+                .seconds
+                .coerceAtLeast(0)
+
+            val hours = durationSeconds / 3600
+            val minutes = (durationSeconds % 3600) / 60
+            val seconds = durationSeconds % 60
+
+            val durationText = if (hours > 0) {
+                "${hours}시간 ${minutes}분 ${seconds}초"
+            } else if (minutes > 0) {
+                "${minutes}분 ${seconds}초"
+            } else {
+                "${seconds}초"
+            }
+
+            val events = data.getJSONArray("events")
+
+            var danger = 0
+            var warning = 0
+            var safe = 0
+
+            for (i in 0 until events.length()) {
+                val event = events.getJSONObject(i)
+
+                when (event.optString("riskLevel")) {
+                    "DANGER" -> danger++
+                    "WARNING" -> warning++
+                    "SAFE" -> safe++
+                }
+            }
+
+            TripEndSummary(
+                duration = durationText,
+                totalCount = events.length(),
+                dangerCount = danger,
+                warningCount = warning,
+                safeCount = safe,
+                highestRiskLevel = data.optString("highestRiskLevel")
+                    .takeIf { it.isNotBlank() && it != "null" }
+            )
+        } finally {
+            connection.disconnect()
+        }
+    }
+}
 @Composable
-fun TripEndScreen(onNavigate: (Screen) -> Unit) {
+fun TripEndScreen(
+    tripId: Long,
+    onNavigate: (Screen) -> Unit
+) {
+    var summary by remember(tripId) {
+        mutableStateOf<TripEndSummary?>(null)
+    }
+    var isLoading by remember(tripId) { mutableStateOf(true) }
+    var errorMessage by remember(tripId) { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(tripId) {
+        isLoading = true
+        errorMessage = null
+
+        try {
+            summary = fetchTripEndSummary(tripId)
+        } catch (e: Exception) {
+            errorMessage = e.message ?: "주행 리포트를 불러오지 못했습니다."
+        } finally {
+            isLoading = false
+        }
+    }
+
     Column(
         modifier = Modifier.fillMaxSize().background(AppColors.Background)
             .verticalScroll(rememberScrollState()).padding(24.dp),
@@ -1755,8 +1987,25 @@ fun TripEndScreen(onNavigate: (Screen) -> Unit) {
         Spacer(Modifier.height(20.dp))
         Text("주행 완료", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = AppColors.Text)
         Spacer(Modifier.height(8.dp))
-        Text("안전한 주행이었습니다", fontSize = 14.sp, color = AppColors.TextSub)
+        Text(
+            "주행 ID: $tripId · 주행 기록이 서버에 저장되었습니다",
+            fontSize = 14.sp,
+            color = AppColors.TextSub
+        )
         Spacer(Modifier.height(28.dp))
+        if (isLoading) {
+            CircularProgressIndicator(color = AppColors.Primary)
+            Spacer(Modifier.height(16.dp))
+        }
+
+        if (errorMessage != null) {
+            Text(
+                errorMessage ?: "",
+                color = AppColors.Danger,
+                fontSize = 13.sp
+            )
+            Spacer(Modifier.height(16.dp))
+        }
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = AppColors.Card),
@@ -1771,15 +2020,25 @@ fun TripEndScreen(onNavigate: (Screen) -> Unit) {
                         Spacer(Modifier.width(8.dp))
                         Text("주행 시간", fontSize = 14.sp, color = AppColors.Text)
                     }
-                    Text("1시간 15분", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text)
+                    Text(
+                        summary?.duration ?: "—",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = AppColors.Text
+                    )
                 }
                 HDivider(modifier = Modifier.padding(vertical = 12.dp))
-                Text("위험 발생 횟수", fontSize = 12.sp, color = AppColors.TextSub)
+                Text(
+                    "위험 단계별 센서 이벤트",
+                    fontSize = 12.sp,
+                    color = AppColors.TextSub
+                )
                 Spacer(Modifier.height(10.dp))
+
                 listOf(
-                    Triple(AppColors.Danger,  "위험", "3회"),
-                    Triple(AppColors.Warning, "주의", "8회"),
-                    Triple(AppColors.Safe,    "안전", "142회"),
+                    Triple(AppColors.Danger, "위험", summary?.dangerCount),
+                    Triple(AppColors.Warning, "주의", summary?.warningCount),
+                    Triple(AppColors.Safe, "안전", summary?.safeCount)
                 ).forEach { (color, label, count) ->
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
@@ -1790,14 +2049,27 @@ fun TripEndScreen(onNavigate: (Screen) -> Unit) {
                             Spacer(Modifier.width(8.dp))
                             Text(label, fontSize = 14.sp, color = AppColors.Text)
                         }
-                        Text(count, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = color)
+                        Text(
+                            count?.let { "${it}건" } ?: "—",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = color
+                        )
                     }
                 }
                 HDivider(modifier = Modifier.padding(vertical = 12.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("✓", color = AppColors.Safe, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.width(8.dp))
-                    Text("서버에 저장되었습니다", fontSize = 12.sp, color = AppColors.Safe)
+                    Text(
+                        if (summary != null) {
+                            "주행 종료 확인 · 센서 이벤트 ${summary!!.totalCount}건"
+                        } else {
+                            "주행 리포트 조회 대기 중"
+                        },
+                        fontSize = 12.sp,
+                        color = if (summary != null) AppColors.Safe else AppColors.TextSub
+                    )
                 }
             }
         }
@@ -1820,11 +2092,111 @@ fun TripEndScreen(onNavigate: (Screen) -> Unit) {
 // ══════════════════════════════════════════════════════════════════════
 // 9. 주행 기록 목록 화면
 // ══════════════════════════════════════════════════════════════════════
+
+data class ServerTripRecord(
+    val tripId: Long,
+    val startedAt: String,
+    val endedAt: String?,
+    val status: String,
+    val eventCount: Int,
+    val highestRiskLevel: String,
+    val deviceId: String
+)
+
+suspend fun fetchTripHistory(userId: Long = 1L): List<ServerTripRecord> {
+    return withContext(Dispatchers.IO) {
+        val url = java.net.URL("$API_BASE_URL/api/trips?userId=$userId")
+        val connection = url.openConnection() as java.net.HttpURLConnection
+
+        try {
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("Accept", "application/json")
+            connection.connectTimeout = 5000
+            connection.readTimeout = 10000
+
+            val statusCode = connection.responseCode
+
+            if (statusCode !in 200..299) {
+                throw IllegalStateException("주행 기록 조회 실패: HTTP $statusCode")
+            }
+
+            val responseBody = connection.inputStream
+                .bufferedReader()
+                .use { it.readText() }
+
+            val root = JSONObject(responseBody)
+
+            if (!root.optBoolean("success", false)) {
+                throw IllegalStateException(
+                    root.optString("message", "주행 기록 조회 실패")
+                )
+            }
+
+            val array = root.getJSONArray("data")
+
+            List(array.length()) { index ->
+                val item = array.getJSONObject(index)
+
+                ServerTripRecord(
+                    tripId = item.getLong("tripId"),
+                    startedAt = item.getString("startedAt"),
+                    endedAt = item.optString("endedAt").takeIf {
+                        it.isNotBlank() && it != "null"
+                    },
+                    status = item.getString("status"),
+                    eventCount = item.optInt("eventCount", 0),
+                    highestRiskLevel = item.optString("highestRiskLevel", "SAFE"),
+                    deviceId = item.optString("deviceId", "")
+                )
+            }
+        } finally {
+            connection.disconnect()
+        }
+    }
+}
 @Composable
 fun DrivingHistoryScreen(onNavigate: (Screen) -> Unit) {
+    var trips by remember {
+        mutableStateOf<List<ServerTripRecord>>(emptyList())
+    }
+
+    var isLoading by remember { mutableStateOf(true) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        isLoading = true
+        errorMessage = null
+
+        try {
+            trips = fetchTripHistory()
+        } catch (e: Exception) {
+            errorMessage = e.message ?: "주행 기록을 불러오지 못했습니다."
+        } finally {
+            isLoading = false
+        }
+    }
+
     Column(modifier = Modifier.fillMaxSize().background(AppColors.Background)) {
         AppTopBar(title = "주행 기록")
-        if (mockTrips.isEmpty()) {
+        if (isLoading) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = AppColors.Primary)
+            }
+        } else if (errorMessage != null) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    errorMessage ?: "주행 기록 조회 실패",
+                    fontSize = 14.sp,
+                    color = AppColors.Danger
+                )
+            }
+        } else if (trips.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("≡", fontSize = 48.sp, color = AppColors.TextSub)
@@ -1835,44 +2207,81 @@ fun DrivingHistoryScreen(onNavigate: (Screen) -> Unit) {
             }
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = 16.dp,
+                    bottom = 24.dp
+                ),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(mockTrips) { trip ->
+            ){
+                items(trips) { trip ->
                     Card(
-                        modifier = Modifier.fillMaxWidth().clickable { onNavigate(Screen.DrivingDetail(trip.id)) },
+                        modifier = Modifier.fillMaxWidth().clickable { onNavigate(Screen.DrivingDetail(trip.tripId.toString())) },
                         colors = CardDefaults.cardColors(containerColor = AppColors.Card),
                         shape = RoundedCornerShape(12.dp), elevation = CardDefaults.cardElevation(2.dp)
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                Text(trip.date, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text)
+                                Text(
+                                    trip.startedAt.substringBefore("T"),
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = AppColors.Text
+                                )
                                 Text(">", fontSize = 18.sp, color = AppColors.TextSub)
                             }
                             Spacer(Modifier.height(6.dp))
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text("🕐", fontSize = 12.sp)
-                                Text("${trip.timeRange}  ·  ${trip.duration}", fontSize = 12.sp, color = AppColors.TextSub)
+                                Text(
+                                    "${trip.startedAt.substringAfter("T").take(5)}" +
+                                            " · ${if (trip.status == "ENDED") "주행 종료" else "진행 중"}" +
+                                            " · 이벤트 ${trip.eventCount}건",
+                                    fontSize = 12.sp,
+                                    color = AppColors.TextSub
+                                )
                             }
                             Spacer(Modifier.height(10.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(AppColors.Danger))
-                                    Text("위험 ${trip.dangerCount}", fontSize = 12.sp, color = AppColors.TextSub)
-                                }
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(AppColors.Warning))
-                                    Text("주의 ${trip.warningCount}", fontSize = 12.sp, color = AppColors.TextSub)
-                                }
-                            }
+
+                            Text(
+                                "센서: ${trip.deviceId}",
+                                fontSize = 12.sp,
+                                color = AppColors.TextSub
+                            )
+
                             Spacer(Modifier.height(10.dp))
-                            Box(
-                                modifier = Modifier.clip(RoundedCornerShape(6.dp))
-                                    .background(riskBg(trip.maxRisk))
-                                    .padding(horizontal = 10.dp, vertical = 5.dp)
-                            ) {
-                                Text("최고 위험: ${riskLabel(trip.maxRisk)}", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = riskColor(trip.maxRisk))
+
+                            val maxRisk = when (trip.highestRiskLevel) {
+                                "DANGER" -> RiskLevel.DANGER
+                                "WARNING" -> RiskLevel.WARNING
+                                "SAFE" -> RiskLevel.SAFE
+                                else -> null
+                            }
+
+                            if (maxRisk != null) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(riskBg(maxRisk))
+                                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                                ) {
+                                    Text(
+                                        "최고 위험: ${riskLabel(maxRisk)}",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = riskColor(maxRisk)
+                                    )
+                                }
+                            } else {
+                                Text(
+                                    "최고 위험: 기록 없음",
+                                    fontSize = 12.sp,
+                                    color = AppColors.TextSub
+                                )
                             }
                         }
                     }

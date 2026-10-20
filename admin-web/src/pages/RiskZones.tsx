@@ -2,7 +2,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { MapPin } from "lucide-react";
 import { useApp } from "../contexts/AppContext";
-import { C, gradeColor } from "../constants/colors";
+import { gradeColor } from "../constants/colors";
 import { Card, CardHead, FilterBar, SelectInput, PrimaryBtn, OutlineBtn } from "../components/ui";
 import { GradeBadge, ZsBadge } from "../components/badges/RiskBadge";
 import { MapPlaceholder } from "../components/map/MapPlaceholder";
@@ -22,21 +22,21 @@ const MAX_ZOOM = 3;
 
 export function RiskZones() {
   const { t } = useApp();
-  const [zoom,    setZoom]    = useState(1);
-  const [grade,   setGrade]   = useState("");
-  const [status,  setStatus]  = useState("");
+  const [zoom, setZoom] = useState(1);
+  const [grade, setGrade] = useState("");
+  const [status, setStatus] = useState("");
   const [applied, setApplied] = useState({ grade: "", status: "" });
 
   const filteredZones = ZONES.filter(z =>
-    (!applied.grade  || z.grade === applied.grade) &&
-    (!applied.status || z.st    === applied.status)
+    (!applied.grade || z.grade === applied.grade) &&
+    (!applied.status || z.st === applied.status)
   );
 
   const filteredPins = PIN_POSITIONS
     .map(p => ({ ...p, zone: ZONES.find(z => z.id === p.zoneId) }))
     .filter(p => p.zone &&
-      (!applied.grade  || p.zone.grade === applied.grade) &&
-      (!applied.status || p.zone.st    === applied.status)
+      (!applied.grade || p.zone.grade === applied.grade) &&
+      (!applied.status || p.zone.st === applied.status)
     ) as Array<{ zoneId: string; x: string; y: string; zone: typeof ZONES[0] }>;
 
   const apply = () => {
@@ -54,11 +54,11 @@ export function RiskZones() {
       <FilterBar>
         <SelectInput value={grade} onChange={setGrade}>
           <option value="">위험도 전체</option>
-          {(["HIGH","MEDIUM","LOW"] as RiskGrade[]).map(g => <option key={g} value={g}>{g}</option>)}
+          {(["HIGH", "MEDIUM", "LOW"] as RiskGrade[]).map(g => <option key={g} value={g}>{g}</option>)}
         </SelectInput>
         <SelectInput value={status} onChange={setStatus}>
           <option value="">상태 전체</option>
-          {(["확인 전","검토 중","조치 완료"] as ZoneStatus[]).map(s => <option key={s} value={s}>{s}</option>)}
+          {(["확인 전", "검토 중", "조치 완료"] as ZoneStatus[]).map(s => <option key={s} value={s}>{s}</option>)}
         </SelectInput>
         <PrimaryBtn onClick={apply}>적용</PrimaryBtn>
         <OutlineBtn onClick={reset}>초기화</OutlineBtn>
@@ -73,7 +73,7 @@ export function RiskZones() {
             sub="서울특별시 현황"
             right={
               <div className="flex items-center gap-4 text-[11px]" style={{ color: t.muted }}>
-                {(["HIGH","MEDIUM","LOW"] as RiskGrade[]).map(g => (
+                {(["HIGH", "MEDIUM", "LOW"] as RiskGrade[]).map(g => (
                   <span key={g} className="flex items-center gap-1.5">
                     <span className="w-2.5 h-2.5 rounded-full" style={{ background: gradeColor(g) }} />{g}
                   </span>

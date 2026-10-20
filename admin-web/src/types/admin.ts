@@ -28,6 +28,17 @@ export interface RiskEvent {
   dev: string;
   trip: string;
   user: string;
+
+  // 센서별 상세 정보
+  sensorId?: number | null;
+  pitch?: number | null;
+  slopeStatus?: string | null;
+
+  // 카메라 감지 결과
+  detectedObject?: string | null;
+  confidence?: number | null;
+  stdDev?: number | null;
+  imageUrl?: string | null;
 }
 
 export interface RiskZone {
@@ -96,4 +107,11 @@ export interface ThemeTokens {
   input: string;
   shadow: string;
   shadowLg: string;
+}
+// AI 예측 결과 - 실제 API 연동 전 임시 규격
+export interface AIPredictionResult {
+  riskGrade: string;
+  riskScore: number;
+  reason: string;
+  recommendedAction: string;
 }

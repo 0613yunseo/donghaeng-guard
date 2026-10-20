@@ -6,18 +6,44 @@ import { C } from "../constants/colors";
 import { Card, CardHead, FilterBar, SelectInput, PrimaryBtn, OutlineBtn } from "../components/ui";
 import { RiskEventTable } from "../components/tables/RiskEventTable";
 import { useTripDetail } from "../hooks/useTripDetail";
-import type { RiskLevel } from "../types/admin";
+import type { RiskEvent, RiskLevel } from "../types/admin";
+
+function getRiskTransitions(events: RiskEvent[]): RiskEvent[] {
+  const sorted = [...events].sort((a, b) => {
+    const timeA = new Date(a.at.replace(" ", "T")).getTime();
+    const timeB = new Date(b.at.replace(" ", "T")).getTime();
+
+    return timeA - timeB || Number(a.id) - Number(b.id);
+  });
+
+  const previousRiskBySensor = new Map<string, RiskLevel>();
+
+  return sorted.filter(event => {
+    const key = `${event.trip}:${event.dev}:${event.sensor}`;
+    const previousRisk = previousRiskBySensor.get(key);
+
+    previousRiskBySensor.set(key, event.rl);
+
+    // 첫 번째 측정값은 비교 대상이 없으므로 제외
+    if (previousRisk === undefined) {
+      return false;
+    }
+
+    return previousRisk !== event.rl;
+  });
+}
 
 export function RiskEvents() {
   const { t, onNav, searchQuery } = useApp();
   const { events, loading, error } = useTripDetail();
+  const transitionEvents = getRiskTransitions(events);
   const [rl, setRl] = useState("");
   const [sensor, setSensor] = useState("");
   const [rt, setRt] = useState("");
   const [dev, setDev] = useState("");
   const [applied, setApplied] = useState({ rl: "", sensor: "", rt: "", dev: "" });
 
-  const filtered = events.filter(e => {
+  const filtered = transitionEvents.filter(e => {
     const q = searchQuery.toLowerCase();
     const matchSearch = !q
       || e.id.toLowerCase().includes(q)
@@ -69,8 +95,8 @@ export function RiskEvents() {
 
       <Card>
         <CardHead
-          title="위험 이벤트 목록 (주행 ID: 1)"
-          sub={`${filtered.length}건 / 전체 ${events.length}건`}
+          title={`위험 단계 변경 이력 (주행 ID: ${events[0]?.trip ?? "—"})`}
+          sub={`${filtered.length}건 / 변경 이벤트 ${transitionEvents.length}건 · 전체 측정 ${events.length}건`}
           right={
             <OutlineBtn icon={Download} onClick={() => toast.success("CSV 파일이 다운로드되었습니다.")}>
               내보내기
