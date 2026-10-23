@@ -15,232 +15,203 @@ import java.util.List;
 @RequiredArgsConstructor
 public class TripService {
 
-        private final TripRepository tripRepository;
-        private final UserRepository userRepository;
-        private final DeviceRepository deviceRepository;
-        private final SensorEventRepository sensorEventRepository;
-        private final UltrasonicEventRepository ultrasonicEventRepository;
-        private final TiltEventRepository tiltEventRepository;
-        private final CameraEventRepository cameraEventRepository;
+    private final TripRepository tripRepository;
+    private final UserRepository userRepository;
+    private final DeviceRepository deviceRepository;
+    private final SensorEventRepository sensorEventRepository;
+    private final UltrasonicEventRepository ultrasonicEventRepository;
+    private final TiltEventRepository tiltEventRepository;
+    private final CameraEventRepository cameraEventRepository;
 
-        @Transactional
-        public TripStartResponse startTrip(TripStartRequest request) {
-                User user = userRepository.findById(request.getUserId())
-                                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
+    @Transactional
+    public TripStartResponse startTrip(TripStartRequest request) {
+        User user = userRepository.findById(request.getUserId())
+                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
 
-                Device device = deviceRepository.findById(request.getDeviceId())
-                                .orElseThrow(() -> new RuntimeException("디바이스를 찾을 수 없습니다."));
+        Device device = deviceRepository.findById(request.getDeviceId())
+                .orElseThrow(() -> new RuntimeException("디바이스를 찾을 수 없습니다."));
 
-                Trip trip = Trip.builder()
-                                .user(user)
-                                .device(device)
-                                .tripStatus(Trip.TripStatus.STARTED)
-                                .startedAt(request.getStartedAt())
-                                .eventCount(0)
-                                .build();
+        Trip trip = Trip.builder()
+                .user(user)
+                .device(device)
+                .tripStatus(Trip.TripStatus.STARTED)
+                .startedAt(request.getStartedAt())
+                .eventCount(0)
+                .build();
 
-                Trip saved = tripRepository.save(trip);
+        Trip saved = tripRepository.save(trip);
 
-                return new TripStartResponse(
-                                saved.getTripId(),
-                                saved.getTripStatus().name(),
-                                saved.getStartedAt());
-        }
+        return new TripStartResponse(
+                saved.getTripId(),
+                saved.getTripStatus().name(),
+                saved.getStartedAt()
+        );
+    }
 
-        @Transactional
-        public TripEndResponse endTrip(Long tripId, TripEndRequest request) {
-                Trip trip = tripRepository.findById(tripId)
-                                .orElseThrow(() -> new RuntimeException("주행 세션을 찾을 수 없습니다."));
+    @Transactional
+    public TripEndResponse endTrip(Long tripId, TripEndRequest request) {
+        Trip trip = tripRepository.findById(tripId)
+                .orElseThrow(() -> new RuntimeException("주행 세션을 찾을 수 없습니다."));
 
-                List<SensorEvent> events = sensorEventRepository.findByTripTripId(tripId);
+        int eventCount = sensorEventRepository.findByTripTripId(tripId).size();
 
-                int eventCount = events.size();
-                Trip.HighestRiskLevel highestRiskLevel = calculateHighestRiskLevel(events);
+        Trip updatedTrip = Trip.builder()
+                .tripId(trip.getTripId())
+                .user(trip.getUser())
+                .device(trip.getDevice())
+                .tripStatus(Trip.TripStatus.ENDED)
+                .startedAt(trip.getStartedAt())
+                .endedAt(request.getEndedAt())
+                .eventCount(eventCount)
+                .highestRiskLevel(trip.getHighestRiskLevel())
+                .build();
 
-                Trip updatedTrip = Trip.builder()
-                                .tripId(trip.getTripId())
-                                .user(trip.getUser())
-                                .device(trip.getDevice())
-                                .tripStatus(Trip.TripStatus.ENDED)
-                                .startedAt(trip.getStartedAt())
-                                .endedAt(request.getEndedAt())
-                                .eventCount(eventCount)
-                                .highestRiskLevel(highestRiskLevel)
-                                .build();
+        Trip saved = tripRepository.save(updatedTrip);
 
-                Trip saved = tripRepository.save(updatedTrip);
+        return new TripEndResponse(
+                saved.getTripId(),
+                saved.getTripStatus().name(),
+                saved.getEventCount(),
+                saved.getEndedAt()
+        );
+    }
 
-                return new TripEndResponse(
-                                saved.getTripId(),
-                                saved.getTripStatus().name(),
-                                saved.getEventCount(),
-                                saved.getEndedAt());
-        }
+    @Transactional(readOnly = true)
+    public TripSummaryResponse getTripSummary(Long tripId) {
+        Trip trip = tripRepository.findById(tripId)
+                .orElseThrow(() -> new RuntimeException("주행 세션을 찾을 수 없습니다."));
 
-        private Trip.HighestRiskLevel calculateHighestRiskLevel(List<SensorEvent> events) {
-                boolean hasWarning = false;
-                boolean hasSafe = false;
+        return new TripSummaryResponse(
+                trip.getStartedAt(),
+                trip.getEndedAt(),
+                trip.getEventCount(),
+                trip.getHighestRiskLevel() != null ? trip.getHighestRiskLevel().name() : null
+        );
+    }
 
-                for (SensorEvent event : events) {
-                        if (event.getRiskLevel() == null) {
-                                continue;
-                        }
+    @Transactional(readOnly = true)
+    public TripStatusResponse getTripStatus(Long tripId) {
+        Trip trip = tripRepository.findById(tripId)
+                .orElseThrow(() -> new RuntimeException("주행 세션을 찾을 수 없습니다."));
 
-                        switch (event.getRiskLevel()) {
-                                case DANGER -> {
-                                        return Trip.HighestRiskLevel.DANGER;
-                                }
-                                case WARNING -> hasWarning = true;
-                                case SAFE -> hasSafe = true;
-                        }
+        return new TripStatusResponse(
+                trip.getTripStatus().name(),
+                trip.getEventCount()
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public List<TripListResponse> getTripList(Long userId) {
+        List<Trip> trips = tripRepository.findByUserUserIdOrderByStartedAtDesc(userId);
+
+        return trips.stream()
+                .map(trip -> new TripListResponse(
+                        trip.getTripId(),
+                        trip.getStartedAt(),
+                        trip.getEndedAt(),
+                        trip.getTripStatus().name(),
+                        trip.getEventCount(),
+                        trip.getHighestRiskLevel() != null ? trip.getHighestRiskLevel().name() : null
+                ))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public TripDetailResponse getTripDetail(Long tripId) {
+        Trip trip = tripRepository.findById(tripId)
+                .orElseThrow(() -> new RuntimeException("주행 세션을 찾을 수 없습니다."));
+
+        List<SensorEvent> events = sensorEventRepository.findByTripTripId(tripId);
+
+        List<SensorEventDetailResponse> eventResponses = events.stream()
+                .map(this::toSensorEventDetailResponse)
+                .toList();
+
+        return new TripDetailResponse(
+                trip.getTripId(),
+                trip.getStartedAt(),
+                trip.getEndedAt(),
+                trip.getTripStatus().name(),
+                trip.getEventCount(),
+                trip.getHighestRiskLevel() != null ? trip.getHighestRiskLevel().name() : null,
+                eventResponses
+        );
+    }
+
+    private SensorEventDetailResponse toSensorEventDetailResponse(SensorEvent e) {
+        Integer sensorId = null;
+        Integer distanceMm = null;
+        Double pitch = null;
+        String slopeStatus = null;
+        String detectedObject = null;
+        Double confidence = null;
+        Double stdDev = null;
+        String imageUrl = null;
+
+        switch (e.getSensorType()) {
+            case ULTRASONIC -> {
+                UltrasonicEvent u = ultrasonicEventRepository
+                        .findBySensorEventEventId(e.getEventId()).orElse(null);
+                if (u != null) {
+                    sensorId = u.getSensorId();
+                    distanceMm = u.getDistanceMm();
                 }
-
-                if (hasWarning) {
-                        return Trip.HighestRiskLevel.WARNING;
+            }
+            case TILT -> {
+                TiltEvent t = tiltEventRepository
+                        .findBySensorEventEventId(e.getEventId()).orElse(null);
+                if (t != null) {
+                    pitch = t.getPitch();
+                    slopeStatus = t.getSlopeStatus().name();
                 }
-
-                if (hasSafe) {
-                        return Trip.HighestRiskLevel.SAFE;
+            }
+            case CAMERA -> {
+                CameraEvent c = cameraEventRepository
+                        .findBySensorEventEventId(e.getEventId()).orElse(null);
+                if (c != null) {
+                    detectedObject = c.getDetectedObject();
+                    confidence = c.getConfidence();
+                    stdDev = c.getStdDev();
+                    imageUrl = c.getImageUrl();
                 }
-
-                return null;
+            }
         }
 
-        @Transactional(readOnly = true)
-        public TripSummaryResponse getTripSummary(Long tripId) {
-                Trip trip = tripRepository.findById(tripId)
-                                .orElseThrow(() -> new RuntimeException("주행 세션을 찾을 수 없습니다."));
+        return new SensorEventDetailResponse(
+                e.getEventId(),
+                e.getSensorType().name(),
+                e.getRiskLevel() != null ? e.getRiskLevel().name() : null,
+                e.getLatitude(),
+                e.getLongitude(),
+                e.getDetectedAt(),
+                sensorId,
+                distanceMm,
+                pitch,
+                slopeStatus,
+                detectedObject,
+                confidence,
+                stdDev,
+                imageUrl
+        );
+    }
+    @Transactional(readOnly = true)
+    public TripStartResponse getLatestTrip(Long userId) {
+        Trip trip = tripRepository
+                .findTopByUserUserIdAndTripStatusOrderByStartedAtDesc(userId, Trip.TripStatus.STARTED)
+                .orElseThrow(() -> new RuntimeException("진행 중인 주행이 없습니다."));
 
-                return new TripSummaryResponse(
-                                trip.getStartedAt(),
-                                trip.getEndedAt(),
-                                trip.getEventCount(),
-                                trip.getHighestRiskLevel() != null ? trip.getHighestRiskLevel().name() : null);
-        }
+        return new TripStartResponse(
+                trip.getTripId(),
+                trip.getTripStatus().name(),
+                trip.getStartedAt()
+        );
+    }
 
-        @Transactional(readOnly = true)
-        public TripStatusResponse getTripStatus(Long tripId) {
-                Trip trip = tripRepository.findById(tripId)
-                                .orElseThrow(() -> new RuntimeException("주행 세션을 찾을 수 없습니다."));
+    @Transactional
+    public void updateVideoUrl(Long tripId, String videoUrl) {
+        Trip trip = tripRepository.findById(tripId)
+                .orElseThrow(() -> new RuntimeException("주행 세션을 찾을 수 없습니다."));
+        trip.updateVideoUrl(videoUrl);
+    }
 
-                return new TripStatusResponse(
-                                trip.getTripStatus().name(),
-                                trip.getEventCount());
-        }
-
-        @Transactional(readOnly = true)
-        public List<TripListResponse> getTripList(Long userId) {
-                List<Trip> trips = tripRepository.findByUserUserIdOrderByStartedAtDesc(userId);
-
-                return trips.stream()
-                                .map(trip -> new TripListResponse(
-                                                trip.getTripId(),
-                                                trip.getStartedAt(),
-                                                trip.getEndedAt(),
-                                                trip.getTripStatus().name(),
-                                                trip.getEventCount(),
-                                                trip.getHighestRiskLevel() != null ? trip.getHighestRiskLevel().name()
-                                                                : null,
-                                                trip.getDevice() != null ? trip.getDevice().getDeviceId() : null,
-                                                trip.getDevice() != null ? trip.getDevice().getDeviceName() : null))
-                                .toList();
-        }
-
-        @Transactional(readOnly = true)
-        public TripDetailResponse getTripDetail(Long tripId) {
-                Trip trip = tripRepository.findById(tripId)
-                                .orElseThrow(() -> new RuntimeException("주행 세션을 찾을 수 없습니다."));
-
-                List<SensorEvent> events = sensorEventRepository.findByTripTripId(tripId);
-
-                List<SensorEventDetailResponse> eventResponses = events.stream()
-                                .map(this::toSensorEventDetailResponse)
-                                .toList();
-
-                return new TripDetailResponse(
-                                trip.getTripId(),
-                                trip.getStartedAt(),
-                                trip.getEndedAt(),
-                                trip.getTripStatus().name(),
-                                trip.getEventCount(),
-                                trip.getHighestRiskLevel() != null ? trip.getHighestRiskLevel().name() : null,
-                                eventResponses);
-        }
-
-        private SensorEventDetailResponse toSensorEventDetailResponse(SensorEvent e) {
-                Integer sensorId = null;
-                Integer distanceMm = null;
-                Float pitch = null;
-                String slopeStatus = null;
-                String detectedObject = null;
-                Float confidence = null;
-                Float stdDev = null;
-                String imageUrl = null;
-
-                String deviceId = null;
-                String deviceName = null;
-
-                if (e.getDevice() != null) {
-                        deviceId = e.getDevice().getDeviceId();
-                        deviceName = e.getDevice().getDeviceName();
-                } else if (e.getTrip() != null && e.getTrip().getDevice() != null) {
-                        deviceId = e.getTrip().getDevice().getDeviceId();
-                        deviceName = e.getTrip().getDevice().getDeviceName();
-                }
-
-                switch (e.getSensorType()) {
-                        case ULTRASONIC -> {
-                                UltrasonicEvent u = ultrasonicEventRepository
-                                                .findBySensorEventEventId(e.getEventId()).orElse(null);
-                                if (u != null) {
-                                        sensorId = u.getSensorId();
-                                        distanceMm = u.getDistanceMm();
-                                }
-                        }
-                        case TILT -> {
-                                TiltEvent t = tiltEventRepository
-                                                .findBySensorEventEventId(e.getEventId()).orElse(null);
-                                if (t != null) {
-                                        pitch = t.getPitch();
-                                        slopeStatus = t.getSlopeStatus().name();
-                                }
-                        }
-                        case CAMERA -> {
-                                CameraEvent c = cameraEventRepository
-                                                .findBySensorEventEventId(e.getEventId()).orElse(null);
-                                if (c != null) {
-                                        detectedObject = c.getDetectedObject();
-                                        confidence = c.getConfidence();
-                                        stdDev = c.getStdDev();
-                                        imageUrl = c.getImageUrl();
-                                }
-                        }
-                }
-
-                return new SensorEventDetailResponse(
-                                e.getEventId(),
-                                e.getSensorType().name(),
-                                e.getRiskLevel() != null ? e.getRiskLevel().name() : null,
-                                e.getLatitude(),
-                                e.getLongitude(),
-                                e.getDetectedAt(),
-                                deviceId,
-                                deviceName,
-                                sensorId,
-                                distanceMm,
-                                pitch,
-                                slopeStatus,
-                                detectedObject,
-                                confidence,
-                                stdDev,
-                                imageUrl);
-        }
-
-        @Transactional
-        public void updateVideoUrl(Long tripId, String videoUrl) {
-                Trip trip = tripRepository.findById(tripId)
-                                .orElseThrow(() -> new RuntimeException("주행 세션을 찾을 수 없습니다."));
-
-                trip.updateVideoUrl(videoUrl);
-        }
 }

@@ -20,7 +20,7 @@ public class TiltEvent {
     private SensorEvent sensorEvent;
 
     @Column(nullable = false)
-    private Float pitch;  // 기울기 각도
+    private Double pitch;  // 기울기 각도
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)

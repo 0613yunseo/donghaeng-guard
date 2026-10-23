@@ -24,6 +24,10 @@ public class SensorEvent {
     @JoinColumn(name = "device_id")
     private Device device;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "measurement_id")
+    private Measurement measurement;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private SensorType sensorType;  // ULTRASONIC, TILT, CAMERA
@@ -35,7 +39,7 @@ public class SensorEvent {
 
     private Double longitude;
 
-    @Column(nullable = false)
+    @Column(name = "detected_at", nullable = false, columnDefinition = "DATETIME(3)")
     private LocalDateTime detectedAt;
 
     public enum SensorType {
