@@ -4,6 +4,7 @@ import com.nulla.donghaeguard.common.ApiResponse;
 import com.nulla.donghaeguard.dto.request.TripEndRequest;
 import com.nulla.donghaeguard.dto.request.TripStartRequest;
 import com.nulla.donghaeguard.dto.response.*;
+import com.nulla.donghaeguard.entity.Trip;
 import com.nulla.donghaeguard.service.TripService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -62,6 +63,12 @@ public class TripController {
                                             @RequestBody Map<String, String> body) {
         tripService.updateVideoUrl(tripId, body.get("videoUrl"));
         return ResponseEntity.ok().build();
+    }
+
+    @GetMapping("/latest")
+    public ApiResponse<TripStartResponse> getLatestTrip(@RequestParam Long userId) {
+        TripStartResponse response = tripService.getLatestTrip(userId);
+        return ApiResponse.ok(response);
     }
 
 }

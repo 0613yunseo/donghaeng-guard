@@ -18,12 +18,12 @@ public class SensorEventRequest {
     private Integer distanceMm;
 
     // 기울기 센서용
-    private Float pitch;
+    private Double pitch;
     private String slopeStatus;  // NORMAL, WARNING, DANGER
 
     // 카메라용
     private String detectedObject;
-    private Float confidence;
-    private Float stdDev;
+    private Double confidence;
+    private Double stdDev;
     private String imageUrl;
 }

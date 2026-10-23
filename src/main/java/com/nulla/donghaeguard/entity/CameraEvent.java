@@ -19,11 +19,14 @@ public class CameraEvent {
     @JoinColumn(name = "event_id")
     private SensorEvent sensorEvent;
 
+    @Column(name = "max_box_ratio")
+    private Double maxBoxRatio;
+
     private String detectedObject;  // 감지된 객체 (person, chair 등)
 
-    private Float confidence;  // 신뢰도 (0.0 ~ 1.0)
+    private Double confidence;  // 신뢰도 (0.0 ~ 1.0)
 
-    private Float stdDev;  // 노면 표준편차 (MiDaS Depth)
+    private Double stdDev;  // 노면 표준편차 (MiDaS Depth)
 
     private String imageUrl;  // 위험 감지 시 캡처 이미지 경로
 }
