@@ -91,7 +91,7 @@ import kotlinx.coroutines.launch
 import org.json.JSONObject
 
 //백엔드 포트 관리
-const val API_BASE_URL = "http://10.0.2.2:8081"
+const val API_BASE_URL = "http://172.18.95.27:8081"
 // ══════════════════════════════════════════════════════════════════════
 // 색상 시스템 (theme.css → AppColors)
 // ══════════════════════════════════════════════════════════════════════
@@ -146,6 +146,84 @@ data class AiAnalysisResult(
     val reason: String,
     val recommendedAction: String
 )
+// Spring Boot에서 조회한 AI 예측 결과
+data class AiPredictionResult(
+    val id: Long,
+    val measurementId: String,
+    val tripId: Long?,
+    val modelType: String,
+    val modelVersion: String?,
+    val predictedRisk: String?,
+    val predictedProbability: Double?,
+    val ruleRisk: String?,
+    val status: String,
+    val errorMessage: String?,
+    val predictedAt: String?
+)
+
+// 실제 AI 예측 결과 조회
+suspend fun fetchAiPredictions(tripId: Long): List<AiPredictionResult> {
+    return withContext(Dispatchers.IO) {
+        val connection = (
+                java.net.URL("$API_BASE_URL/api/ai-predictions?tripId=$tripId")
+                    .openConnection() as java.net.HttpURLConnection
+                )
+
+        try {
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("Accept", "application/json")
+            connection.connectTimeout = 5000
+            connection.readTimeout = 10000
+
+            val statusCode = connection.responseCode
+
+            if (statusCode !in 200..299) {
+                throw IllegalStateException(
+                    "AI 분석 조회 실패 (HTTP $statusCode)"
+                )
+            }
+
+            val responseBody = connection.inputStream
+                .bufferedReader()
+                .use { it.readText() }
+
+            // 현재 Spring Boot API는 JSON 배열을 반환함
+            val jsonArray = org.json.JSONArray(responseBody)
+
+            List(jsonArray.length()) { index ->
+                val item = jsonArray.getJSONObject(index)
+
+                // JSONObject.optString은 JSON null도 문자열로 반환할 수 있으므로 처리
+                fun optionalString(key: String): String? {
+                    return if (item.isNull(key) || !item.has(key)) {
+                        null
+                    } else {
+                        item.getString(key)
+                    }
+                }
+
+                AiPredictionResult(
+                    id = item.getLong("id"),
+                    measurementId = item.getString("measurementId"),
+                    tripId = if (item.isNull("tripId")) null
+                    else item.getLong("tripId"),
+                    modelType = item.getString("modelType"),
+                    modelVersion = optionalString("modelVersion"),
+                    predictedRisk = optionalString("predictedRisk"),
+                    predictedProbability =
+                        if (item.isNull("predictedProbability")) null
+                        else item.getDouble("predictedProbability"),
+                    ruleRisk = optionalString("ruleRisk"),
+                    status = item.getString("status"),
+                    errorMessage = optionalString("errorMessage"),
+                    predictedAt = optionalString("predictedAt")
+                )
+            }
+        } finally {
+            connection.disconnect()
+        }
+    }
+}
 fun parseAiAnalysisResult(json: String): AiAnalysisResult {
     val data = JSONObject(json)
 
@@ -195,12 +273,187 @@ data class TripDetail(
     val id: String, val date: String, val startTime: String,
     val endTime: String, val duration: String, val events: List<RiskEvent>
 )
+suspend fun fetchTripDetail(tripId: String): TripDetail {
+    return withContext(Dispatchers.IO) {
+        val connection = (
+            java.net.URL("$API_BASE_URL/api/trips/$tripId")
+                .openConnection() as java.net.HttpURLConnection
+        )
+
+        try {
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("Accept", "application/json")
+            connection.connectTimeout = 5000
+            connection.readTimeout = 5000
+
+            val status = connection.responseCode
+            if (status !in 200..299) {
+                throw IllegalStateException("주행 정보 조회 실패 (HTTP $status)")
+            }
+
+            val response = connection.inputStream.bufferedReader().use {
+                it.readText()
+            }
+
+            val root = JSONObject(response)
+            if (!root.optBoolean("success", false)) {
+                throw IllegalStateException("주행 정보를 불러올 수 없습니다.")
+            }
+
+            val data = root.getJSONObject("data")
+            val startedAt = LocalDateTime.parse(data.getString("startedAt"))
+            val endedAt = data.optString("endedAt").takeIf {
+                it.isNotBlank() && it != "null"
+            }?.let { LocalDateTime.parse(it) }
+
+            val durationMinutes = endedAt?.let {
+                java.time.Duration.between(startedAt, it).toMinutes()
+            }
+
+            val eventArray = data.getJSONArray("events")
+            val events = List(eventArray.length()) { index ->
+                val event = eventArray.getJSONObject(index)
+                val detectedAt = LocalDateTime.parse(
+                    event.getString("detectedAt")
+                )
+
+                RiskEvent(
+                    id = event.getString("eventId"),
+                    time = detectedAt.format(
+                        java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")
+                    ),
+                    riskLevel = when (event.optString("riskLevel")) {
+                        "DANGER" -> RiskLevel.DANGER
+                        "WARNING" -> RiskLevel.WARNING
+                        else -> RiskLevel.SAFE
+                    },
+                    distanceMm = if (event.isNull("distanceMm")) {
+                        -1
+                    } else {
+                        event.getInt("distanceMm")
+                    },
+                    location = "위치 정보",
+                    lat = if (event.isNull("latitude")) null
+                          else event.getDouble("latitude"),
+                    lng = if (event.isNull("longitude")) null
+                          else event.getDouble("longitude")
+                )
+            }
+
+            TripDetail(
+                id = data.getString("tripId"),
+                date = startedAt.format(
+                    java.time.format.DateTimeFormatter.ofPattern("yyyy년 M월 d일")
+                ),
+                startTime = startedAt.format(
+                    java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")
+                ),
+                endTime = endedAt?.format(
+                    java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")
+                ) ?: "주행 중",
+                duration = durationMinutes?.let { minutes ->
+                    val seconds = java.time.Duration.between(
+                        startedAt, endedAt
+                    ).seconds.coerceAtLeast(0)
+
+                    if (minutes >= 60) {
+                        "${minutes / 60}시간 ${minutes % 60}분"
+                    } else if (minutes >= 1) {
+                        "${minutes}분"
+                    } else {
+                        "${seconds}초"
+                    }
+                } ?: "주행 중",
+                events = events
+            )
+        } finally {
+            connection.disconnect()
+        }
+    }
+}
 
 data class RiskZone(
     val id: String, val name: String, val location: String,
     val riskGrade: String, val riskScore: Int, val eventCount: Int,
     val description: String, val lat: Double, val lng: Double
 )
+
+// Spring Boot 위험 구간 API 응답
+data class ServerRiskZone(
+    val zoneId: Long,
+    val latitude: Double?,
+    val longitude: Double?,
+    val riskScore: Int?,
+    val riskGrade: String?,
+    val zoneEventCount: Int?,
+    val reason: String?,
+    val updatedAt: String?
+)
+
+// 실제 위험 구간 목록 조회
+suspend fun fetchRiskZones(): List<ServerRiskZone> {
+    return withContext(Dispatchers.IO) {
+        val connection = (
+                java.net.URL("$API_BASE_URL/api/risk-zones")
+                    .openConnection() as java.net.HttpURLConnection
+                )
+
+        try {
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("Accept", "application/json")
+            connection.connectTimeout = 5000
+            connection.readTimeout = 5000
+
+            val statusCode = connection.responseCode
+
+            if (statusCode !in 200..299) {
+                throw IllegalStateException(
+                    "위험 구간 조회 실패 (HTTP $statusCode)"
+                )
+            }
+
+            val responseBody = connection.inputStream
+                .bufferedReader()
+                .use { it.readText() }
+
+            val root = JSONObject(responseBody)
+
+            if (!root.optBoolean("success", false)) {
+                throw IllegalStateException(
+                    root.optString("message", "위험 구간 조회 실패")
+                )
+            }
+
+            val data = root.getJSONArray("data")
+
+            List(data.length()) { index ->
+                val item = data.getJSONObject(index)
+
+                fun optionalDouble(key: String): Double? =
+                    if (item.isNull(key)) null else item.getDouble(key)
+
+                fun optionalInt(key: String): Int? =
+                    if (item.isNull(key)) null else item.getInt(key)
+
+                fun optionalString(key: String): String? =
+                    if (item.isNull(key)) null else item.getString(key)
+
+                ServerRiskZone(
+                    zoneId = item.getLong("zoneId"),
+                    latitude = optionalDouble("latitude"),
+                    longitude = optionalDouble("longitude"),
+                    riskScore = optionalInt("riskScore"),
+                    riskGrade = optionalString("riskGrade"),
+                    zoneEventCount = optionalInt("zoneEventCount"),
+                    reason = optionalString("reason"),
+                    updatedAt = optionalString("updatedAt")
+                )
+            }
+        } finally {
+            connection.disconnect()
+        }
+    }
+}
 
 data class MapMarker(
     val id: String, val x: Float, val y: Float,
@@ -1051,9 +1304,9 @@ fun SensorConnectionScreen(
                         contentAlignment = Alignment.Center
                     ) { Text("✓", fontSize = 44.sp, color = AppColors.Safe, fontWeight = FontWeight.Bold) }
                     Spacer(Modifier.height(20.dp))
-                    Text("연결 완료!", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Safe)
+                    Text("센서 선택 완료!", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Safe)
                     Spacer(Modifier.height(8.dp))
-                    Text("센서 모듈과 성공적으로 연결되었습니다", fontSize = 14.sp, color = AppColors.TextSub)
+                    Text("사용할 센서가 선택되었습니다", fontSize = 14.sp, color = AppColors.TextSub)
                     Spacer(Modifier.height(12.dp))
                     CircularProgressIndicator(color = AppColors.Primary, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
                 }
@@ -1070,13 +1323,15 @@ fun SensorConnectionScreen(
                     Spacer(Modifier.height(20.dp))
                     Text("연결 실패", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Danger)
                     Spacer(Modifier.height(8.dp))
-                    Text("센서 모듈 연결에 실패했습니다\n다시 시도해 주세요", fontSize = 14.sp, color = AppColors.TextSub, textAlign = TextAlign.Center)
+                    Text(
+                        "서버 센서 목록 조회 실패\n$errorMessage",
+                        fontSize = 14.sp,
+                        color = AppColors.TextSub,
+                        textAlign = TextAlign.Center
+                    )
                     Spacer(Modifier.height(32.dp))
                     Button(
-                        onClick = {
-                            status = ConnStatus.CONNECTING
-                            scope.launch { delay(2000); status = ConnStatus.CONNECTED }
-                        },
+                        onClick = { searchDevices() },
                         modifier = Modifier.fillMaxWidth(0.8f).height(48.dp),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = AppColors.Primary)
@@ -1096,131 +1351,136 @@ fun SensorConnectionScreen(
 // ══════════════════════════════════════════════════════════════════════
 // 6. 센서 모듈 관리 화면
 // ══════════════════════════════════════════════════════════════════════
+
 @Composable
 fun SensorManagementScreen(onNavigate: (Screen) -> Unit) {
-    var isConnected     by remember { mutableStateOf(true) }
-    var isDisconnecting by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
+    var devices by remember {
+        mutableStateOf<List<ServerDevice>>(emptyList())
+    }
+    var loading by remember { mutableStateOf(true) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    Column(modifier = Modifier.fillMaxSize().background(AppColors.Background)) {
-        AppTopBar(title = "센서 모듈 관리", showBack = true, onBack = { onNavigate(Screen.Settings) })
-        LazyColumn(
-            modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            if (isConnected) {
-                item {
-                    Box(
-                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                            .background(AppColors.SafeBg)
-                            .border(1.dp, AppColors.Safe, RoundedCornerShape(12.dp))
-                            .padding(16.dp)
-                    ) {
-                        Column {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("✓", color = AppColors.Safe, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                                Spacer(Modifier.width(8.dp))
-                                Text("센서 연결됨", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Safe)
-                            }
-                            Spacer(Modifier.height(4.dp))
-                            Text("센서가 정상적으로 연결되어 있습니다", fontSize = 12.sp, color = AppColors.TextSub)
-                        }
-                    }
+    LaunchedEffect(Unit) {
+        loading = true
+        errorMessage = null
+
+        try {
+            devices = fetchRegisteredDevices()
+        } catch (e: Exception) {
+            errorMessage = e.message ?: "센서 정보를 불러오지 못했습니다."
+        } finally {
+            loading = false
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(AppColors.Background)
+    ) {
+        AppTopBar(
+            title = "센서 모듈 관리",
+            showBack = true,
+            onBack = { onNavigate(Screen.Settings) }
+        )
+
+        when {
+            loading -> {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(color = AppColors.Primary)
                 }
-                item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = AppColors.Card),
-                        shape = RoundedCornerShape(12.dp), elevation = CardDefaults.cardElevation(1.dp)
-                    ) {
-                        Column {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().background(AppColors.Surface).padding(16.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    modifier = Modifier.size(48.dp).clip(RoundedCornerShape(10.dp)).background(AppColors.PrimaryBg),
-                                    contentAlignment = Alignment.Center
-                                ) { Text("📶", fontSize = 22.sp) }
-                                Spacer(Modifier.width(14.dp))
-                                Column {
-                                    Text("DongHaeng-ESP32-A1B2", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text)
-                                    Text("전동 휠체어 센서 모듈", fontSize = 12.sp, color = AppColors.TextSub)
-                                }
-                            }
-                            HDivider()
-                            listOf(
-                                Triple("신호 강도", "강함", AppColors.Safe),
-                                Triple("배터리",    "87%",  AppColors.Text),
-                                Triple("마지막 동기화", "방금 전", AppColors.Text),
-                            ).forEach { (key, value, valueColor) ->
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(key,   fontSize = 14.sp, color = AppColors.Text)
-                                    Text(value, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = valueColor)
-                                }
-                                HDivider()
-                            }
-                        }
-                    }
-                }
-                item {
-                    Button(
-                        onClick = {
-                            scope.launch {
-                                isDisconnecting = true
-                                delay(1000)
-                                isConnected = false
-                                isDisconnecting = false
-                            }
-                        },
-                        enabled = !isDisconnecting,
-                        modifier = Modifier.fillMaxWidth().height(48.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = AppColors.Danger)
-                    ) {
-                        Text(
-                            if (isDisconnecting) "연결 해제 중..." else "⏻  센서 연결 해제",
-                            fontSize = 15.sp, fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                }
-                item {
+            }
+
+            errorMessage != null -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
                     Text(
-                        "연결을 해제하면 실시간 위험 감지 기능을 사용할 수 없습니다",
-                        fontSize = 12.sp, color = AppColors.TextSub,
-                        textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()
+                        text = "센서 정보를 불러오지 못했어요.\n$errorMessage",
+                        fontSize = 13.sp,
+                        color = AppColors.TextSub,
+                        textAlign = TextAlign.Center
                     )
                 }
-            } else {
-                item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = AppColors.Card),
-                        shape = RoundedCornerShape(12.dp), elevation = CardDefaults.cardElevation(1.dp)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
+            }
+
+            devices.isEmpty() -> {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "등록된 센서가 없어요.",
+                        fontSize = 14.sp,
+                        color = AppColors.TextSub
+                    )
+                }
+            }
+
+            else -> {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(devices) { device ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = AppColors.Card
+                            ),
+                            shape = RoundedCornerShape(12.dp)
                         ) {
-                            Box(
-                                modifier = Modifier.size(64.dp).clip(CircleShape).background(AppColors.Surface),
-                                contentAlignment = Alignment.Center
-                            ) { Text("📶", fontSize = 28.sp) }
-                            Spacer(Modifier.height(16.dp))
-                            Text("센서 연결 해제됨", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text)
-                            Spacer(Modifier.height(8.dp))
-                            Text("다른 센서를 찾으시겠습니까?", fontSize = 13.sp, color = AppColors.TextSub, textAlign = TextAlign.Center)
-                            Spacer(Modifier.height(20.dp))
-                            Button(
-                                onClick = { onNavigate(Screen.SensorConnection) },
-                                modifier = Modifier.fillMaxWidth().height(48.dp),
-                                shape = RoundedCornerShape(12.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = AppColors.Primary)
-                            ) { Text("🔍  센서 찾기", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Text(
+                                    text = "전동 휠체어 센서 모듈",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = AppColors.Text
+                                )
+
+                                Text(
+                                    text = "센서 ID: ${device.deviceId}",
+                                    fontSize = 13.sp,
+                                    color = AppColors.TextSub
+                                )
+
+                                HDivider()
+
+                                Text(
+                                    text = "서버 등록 상태: ${device.deviceStatus}",
+                                    fontSize = 13.sp,
+                                    color = AppColors.Text
+                                )
+                            }
+                        }
+                    }
+
+                    item {
+                        Text(
+                            text = "실제 블루투스 연결 상태와 배터리 정보는 현재 확인할 수 없습니다.",
+                            fontSize = 12.sp,
+                            color = AppColors.TextSub
+                        )
+                    }
+
+                    item {
+                        OutlinedButton(
+                            onClick = {
+                                onNavigate(Screen.SensorConnection)
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("센서 선택 화면으로 이동")
                         }
                     }
                 }
@@ -1232,49 +1492,65 @@ fun SensorManagementScreen(onNavigate: (Screen) -> Unit) {
 // ══════════════════════════════════════════════════════════════════════
 // 7. 메인 주행 화면
 // ══════════════════════════════════════════════════════════════════════
+
 data class LatestSensorEvent(
     val riskLevel: RiskLevel,
-    val distanceMm: Int
+    val distanceMm: Int?
 )
 
 suspend fun fetchLatestSensorEvent(tripId: Long): LatestSensorEvent? {
     return withContext(Dispatchers.IO) {
-        val url = java.net.URL("$API_BASE_URL/api/trips/$tripId")
-        val connection = url.openConnection() as java.net.HttpURLConnection
+        val connection = java.net.URL(
+            "$API_BASE_URL/api/trips/$tripId"
+        ).openConnection() as java.net.HttpURLConnection
 
         try {
             connection.requestMethod = "GET"
             connection.setRequestProperty("Accept", "application/json")
+            connection.connectTimeout = 3000
+            connection.readTimeout = 3000
 
-            val statusCode = connection.responseCode
-            val responseBody = if (statusCode in 200..299) {
-                connection.inputStream.bufferedReader().readText()
-            } else {
-                connection.errorStream?.bufferedReader()?.readText()
-            }
-
-            if (statusCode !in 200..299 || responseBody == null) {
+            if (connection.responseCode !in 200..299) {
                 return@withContext null
             }
 
+            val responseBody = connection.inputStream
+                .bufferedReader()
+                .use { it.readText() }
+
             val root = JSONObject(responseBody)
-            val data = root.optJSONObject("data") ?: return@withContext null
-            val events = data.optJSONArray("events") ?: return@withContext null
+            val data = root.optJSONObject("data")
+                ?: return@withContext null
+
+            val events = data.optJSONArray("events")
+                ?: return@withContext null
 
             if (events.length() == 0) {
                 return@withContext null
             }
 
-            val latestEvent = events.optJSONObject(events.length() - 1)
+            // 배열 순서에 의존하지 않고 발생 시각으로 최신 이벤트 선택
+            val latestEvent = (0 until events.length())
+                .mapNotNull { events.optJSONObject(it) }
+                .filter { it.has("detectedAt") && !it.isNull("detectedAt") }
+                .maxByOrNull { it.optString("detectedAt") }
                 ?: return@withContext null
 
-            val riskLevelText = latestEvent.optString("riskLevel", "SAFE")
-            val distanceMm = latestEvent.optInt("distanceMm", 1250)
-
-            val riskLevel = when (riskLevelText) {
+            val riskLevel = when (latestEvent.optString("riskLevel")) {
                 "DANGER" -> RiskLevel.DANGER
                 "WARNING" -> RiskLevel.WARNING
-                else -> RiskLevel.SAFE
+                "SAFE" -> RiskLevel.SAFE
+                else -> return@withContext null
+            }
+
+            // 거리 데이터가 없으면 임의의 1250mm를 만들지 않음
+            val distanceMm = if (
+                latestEvent.has("distanceMm") &&
+                !latestEvent.isNull("distanceMm")
+            ) {
+                latestEvent.getInt("distanceMm")
+            } else {
+                null
             }
 
             LatestSensorEvent(
@@ -1282,12 +1558,18 @@ suspend fun fetchLatestSensorEvent(tripId: Long): LatestSensorEvent? {
                 distanceMm = distanceMm
             )
         } catch (e: Exception) {
+            android.util.Log.e(
+                "SENSOR_EVENT",
+                "최근 센서 이벤트 조회 실패",
+                e
+            )
             null
         } finally {
             connection.disconnect()
         }
     }
 }
+
 @Composable
 fun MainDrivingScreen(
     tripActive: Boolean, onTripActiveChange: (Boolean) -> Unit,
@@ -1297,24 +1579,44 @@ fun MainDrivingScreen(
     selectedDeviceId: String?,
     onNavigate: (Screen) -> Unit
 ) {
-    var aiResult by remember {
-        mutableStateOf<AiAnalysisResult?>(null)
+    var aiPredictions by remember {
+        mutableStateOf<List<AiPredictionResult>>(emptyList())
+    }
+
+    var aiLoading by remember {
+        mutableStateOf(false)
+    }
+
+    var aiError by remember {
+        mutableStateOf(false)
     }
 
     LaunchedEffect(tripActive, currentTripId) {
-        if (tripActive && currentTripId != null) {
-            val mockJson = """
-            {
-                "riskGrade": "WARNING",
-                "riskScore": 68,
-                "reason": "전방 장애물과의 거리가 가까워 충돌 위험이 있습니다.",
-                "recommendedAction": "속도를 줄이고 전방 장애물을 확인하세요."
-            }
-        """.trimIndent()
+        aiPredictions = emptyList()
+        aiError = false
+        aiLoading = false
 
-            aiResult = parseAiAnalysisResult(mockJson)
-        } else {
-            aiResult = null
+        if (tripActive && currentTripId != null) {
+            aiLoading = true
+
+            while (true) {
+                try {
+                    aiPredictions = fetchAiPredictions(currentTripId)
+                    aiError = false
+                } catch (e: Exception) {
+                    android.util.Log.e(
+                        "AI_PREDICTION",
+                        "AI 분석 결과 조회 실패",
+                        e
+                    )
+                    aiError = true
+                } finally {
+                    aiLoading = false
+                }
+
+                // AI 추론은 비동기이므로 주기적으로 새 결과 확인
+                delay(5000)
+            }
         }
     }
     var showEndDialog by remember { mutableStateOf(false) }
@@ -1355,7 +1657,10 @@ fun MainDrivingScreen(
 
             if (latestEvent != null) {
                 onRiskLevelChange(latestEvent.riskLevel)
-                onDistanceMmChange(latestEvent.distanceMm)
+
+                latestEvent.distanceMm?.let { actualDistance ->
+                    onDistanceMmChange(actualDistance)
+                }
             }
 
             delay(1000)
@@ -1466,15 +1771,33 @@ fun MainDrivingScreen(
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Text("📶", fontSize = 12.sp)
-                        Text("BLE 연결됨", fontSize = 12.sp, color = AppColors.Safe)
+
+                        Text(
+                            text = if (selectedDeviceId != null) {
+                                "센서 선택됨"
+                            } else {
+                                "센서 미선택"
+                            },
+                            fontSize = 12.sp,
+                            color = if (selectedDeviceId != null) {
+                                AppColors.Safe
+                            } else {
+                                AppColors.TextSub
+                            }
+                        )
                     }
+
 
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Text("📍", fontSize = 12.sp)
-                        Text("GPS 활성", fontSize = 12.sp, color = AppColors.Safe)
+                        Text(
+                            "위치 기능",
+                            fontSize = 12.sp,
+                            color = AppColors.TextSub
+                        )
                     }
 
                     Row(
@@ -1527,7 +1850,7 @@ fun MainDrivingScreen(
                     Spacer(Modifier.height(20.dp))
 
                     Text(
-                        "주행 준비 완료",
+                        "주행 시작 준비",
                         fontSize = 20.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = AppColors.Text
@@ -1536,7 +1859,7 @@ fun MainDrivingScreen(
                     Spacer(Modifier.height(8.dp))
 
                     Text(
-                        "센서가 연결되었습니다\n주행을 시작하면 실시간으로 위험을 감지합니다",
+                        "사용할 센서가 선택되었습니다",
                         fontSize = 14.sp,
                         color = AppColors.TextSub,
                         textAlign = TextAlign.Center
@@ -1704,44 +2027,80 @@ fun MainDrivingScreen(
                             fontWeight = FontWeight.Bold,
                             color = AppColors.Text
                         )
+                        val tiltPrediction = aiPredictions
+                            .filter { it.modelType.equals("TILT", ignoreCase = true) }
+                            .maxByOrNull { it.id }
 
-                        Row(
+                        val cameraPrediction = aiPredictions
+                            .filter { it.modelType.equals("CAMERA", ignoreCase = true) }
+                            .maxByOrNull { it.id }
+
+                        fun riskLabel(risk: String?): String {
+                            return when (risk?.uppercase()) {
+                                "SAFE" -> "안전"
+                                "WARNING" -> "주의"
+                                "DANGER" -> "위험"
+                                else -> "확인 불가"
+                            }
+                        }
+
+                        fun predictionLabel(prediction: AiPredictionResult?): String {
+                            return when {
+                                prediction == null -> "분석 결과 없음"
+                                prediction.status != "SUCCESS" -> "분석할 수 없음"
+                                else -> riskLabel(prediction.predictedRisk)
+                            }
+                        }
+
+                        Column(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
+                            Text(
+                                text = "현재 주행 상태",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = AppColors.Text
+                            )
 
                             Text(
-                                text = "AI 위험 등급: ${aiResult?.riskGrade ?: "-"} · ${aiResult?.riskScore ?: "-"}점",
+                                text = when {
+                                    aiLoading && aiPredictions.isEmpty() ->
+                                        "AI 분석 결과를 확인하고 있어요."
+                                    aiError && aiPredictions.isEmpty() ->
+                                        "AI 분석 정보를 불러오지 못했어요."
+                                    aiPredictions.isEmpty() ->
+                                        "아직 AI 분석 결과가 없어요."
+                                    else ->
+                                        "최근 수집된 센서 데이터를 기반으로 분석한 결과예요."
+                                },
                                 fontSize = 12.sp,
-                                color = AppColors.Text,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
+                                color = AppColors.TextSub
+                            )
+
+                            Text(
+                                text = "기울기 분석: ${predictionLabel(tiltPrediction)}",
+                                fontSize = 12.sp,
+                                color = AppColors.Text
+                            )
+
+                            Text(
+                                text = "주변 장애물 분석: ${predictionLabel(cameraPrediction)}",
+                                fontSize = 12.sp,
+                                color = AppColors.Text
+                            )
+
+                            Text(
+                                text = "AI 분석은 보조 정보이며, 실제 위험 알림은 센서 감지 결과를 우선해요.",
+                                fontSize = 10.sp,
+                                color = AppColors.TextSub
                             )
                         }
 
-                        Text(
-                            text = "판정: ${aiResult?.reason ?: "AI 분석 결과 대기 중"}",
-                            fontSize = 12.sp,
-                            color = AppColors.Text,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                    } // 기존 AI 카드의 Column 종료
+                } // 기존 AI Card 종료
 
-                        Text(
-                            text = "권장: ${aiResult?.recommendedAction ?: "분석 결과가 아직 없습니다."}",
-                            fontSize = 12.sp,
-                            color = AppColors.Text,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
 
-                        Text(
-                            text = "AI 테스트용 예시 데이터",
-                            fontSize = 10.sp,
-                            color = AppColors.TextSub
-                        )
-                    }
-                }
 
                 Spacer(Modifier.weight(1f))
 
@@ -2247,14 +2606,6 @@ fun DrivingHistoryScreen(onNavigate: (Screen) -> Unit) {
                             }
                             Spacer(Modifier.height(10.dp))
 
-                            Text(
-                                "센서: ${trip.deviceId}",
-                                fontSize = 12.sp,
-                                color = AppColors.TextSub
-                            )
-
-                            Spacer(Modifier.height(10.dp))
-
                             val maxRisk = when (trip.highestRiskLevel) {
                                 "DANGER" -> RiskLevel.DANGER
                                 "WARNING" -> RiskLevel.WARNING
@@ -2301,11 +2652,21 @@ fun DrivingDetailScreen(tripId: String, onNavigate: (Screen) -> Unit) {
     var expandedId  by remember { mutableStateOf<String?>(null) }
     var showMap     by remember { mutableStateOf(false) }
 
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
     LaunchedEffect(tripId) {
         loading = true
-        delay(1000)
-        detail  = mockTripDetail
-        loading = false
+        errorMessage = null
+        detail = null
+
+        try {
+            detail = fetchTripDetail(tripId)
+        } catch (e: Exception) {
+            android.util.Log.e("TRIP_DETAIL", "주행 상세 조회 실패", e)
+            errorMessage = "주행 정보를 불러오지 못했어요."
+        } finally {
+            loading = false
+        }
     }
 
     Column(modifier = Modifier.fillMaxSize().background(AppColors.Background)) {
@@ -2339,7 +2700,32 @@ fun DrivingDetailScreen(tripId: String, onNavigate: (Screen) -> Unit) {
             }
             return
         }
-        val d = detail ?: return
+        val d = detail
+
+        if (d == null) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = errorMessage ?: "주행 정보가 없어요.",
+                        fontSize = 15.sp,
+                        color = AppColors.TextSub
+                    )
+
+                    TextButton(
+                        onClick = { onNavigate(Screen.DrivingHistory) }
+                    ) {
+                        Text("주행 기록으로 돌아가기")
+                    }
+                }
+            }
+            return
+        }
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -2490,7 +2876,15 @@ fun DrivingDetailScreen(tripId: String, onNavigate: (Screen) -> Unit) {
                                         Text("발생 위치", fontSize = 11.sp, color = AppColors.TextSub)
                                         Text(ev.location, fontSize = 12.sp, color = AppColors.Text)
                                         if (ev.lat != null && ev.lng != null) {
-                                            Text("${ev.lat.toBigDecimal().setScale(4)}, ${ev.lng.toBigDecimal().setScale(4)}", fontSize = 11.sp, color = AppColors.TextSub)
+                                            Text(
+                                                text = "%.4f, %.4f".format(
+                                                    java.util.Locale.US,
+                                                    ev.lat,
+                                                    ev.lng
+                                                ),
+                                                fontSize = 11.sp,
+                                                color = AppColors.TextSub
+                                            )
                                         }
                                     }
                                 }
@@ -2513,196 +2907,207 @@ fun DrivingDetailScreen(tripId: String, onNavigate: (Screen) -> Unit) {
 // ══════════════════════════════════════════════════════════════════════
 @Composable
 fun RiskZonesScreen(onNavigate: (Screen) -> Unit) {
-    var loading        by remember { mutableStateOf(true) }
-    var viewMode       by remember { mutableStateOf("list") } // "map" | "list"
-    var selectedZoneId by remember { mutableStateOf<String?>(null) }
+    var riskZones by remember {
+        mutableStateOf<List<ServerRiskZone>>(emptyList())
+    }
+    var loading by remember { mutableStateOf(true) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var selectedZoneId by remember { mutableStateOf<Long?>(null) }
 
     LaunchedEffect(Unit) {
-        delay(1200)
-        loading = false
+        loading = true
+        errorMessage = null
+
+        try {
+            riskZones = fetchRiskZones()
+        } catch (e: Exception) {
+            errorMessage = e.message ?: "위험 구간을 불러오지 못했습니다."
+        } finally {
+            loading = false
+        }
     }
 
-    Column(modifier = Modifier.fillMaxSize().background(AppColors.Background)) {
-        Surface(color = AppColors.Card, shadowElevation = 1.dp) {
-            Column {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("위험 구간", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text)
-                    Row(
-                        modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(AppColors.Surface).padding(4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        listOf("map" to "🗺", "list" to "≡").forEach { (mode, icon) ->
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(if (viewMode == mode) AppColors.Card else Color.Transparent)
-                                    .clickable { viewMode = mode }
-                                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                                contentAlignment = Alignment.Center
-                            ) { Text(icon, fontSize = 16.sp) }
-                        }
-                    }
-                }
-                // 안내 배너
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(AppColors.Background)
+    ) {
+        Surface(
+            color = AppColors.Card,
+            shadowElevation = 1.dp
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Text(
+                    text = "위험 구간",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = AppColors.Text
+                )
+
+                Spacer(Modifier.height(6.dp))
+
+                Text(
+                    text = "주행 데이터를 기반으로 확인된 위험 구간입니다.",
+                    fontSize = 12.sp,
+                    color = AppColors.TextSub
+                )
+            }
+        }
+
+        when {
+            loading -> {
                 Box(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 12.dp)
-                        .clip(RoundedCornerShape(8.dp)).background(AppColors.PrimaryBg)
-                        .border(1.dp, AppColors.Primary.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-                        .padding(12.dp)
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Row(verticalAlignment = Alignment.Top) {
-                        Text("ℹ", fontSize = 14.sp, color = AppColors.Primary)
-                        Spacer(Modifier.width(8.dp))
-                        Text("여러 사용자의 주행 데이터를 AI가 분석하여 위험도가 높은 순으로 제공합니다", fontSize = 12.sp, color = AppColors.Text)
-                    }
-                }
-            }
-        }
-
-        if (loading) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(color = AppColors.Primary, modifier = Modifier.size(48.dp))
-                    Spacer(Modifier.height(16.dp))
-                    Text("AI 분석 중...", fontSize = 14.sp, color = AppColors.TextSub)
-                }
-            }
-            return
-        }
-
-        when (viewMode) {
-            "map" -> {
-                Column(
-                    modifier = Modifier.fillMaxSize().padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Card(
-                        modifier = Modifier.fillMaxWidth().weight(1f),
-                        colors = CardDefaults.cardColors(containerColor = AppColors.Card),
-                        shape = RoundedCornerShape(12.dp), elevation = CardDefaults.cardElevation(1.dp)
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Column {
-                            Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text("🗺", fontSize = 18.sp)
-                                Spacer(Modifier.width(8.dp))
-                                Column {
-                                    Text("위험 구간 지도", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text)
-                                    Text("${mockRiskZones.size}개의 위험 구간", fontSize = 12.sp, color = AppColors.TextSub)
-                                }
-                            }
-                            Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                                val mapPositions = listOf(Pair(23f,35f), Pair(45f,28f), Pair(38f,52f), Pair(62f,41f))
-                                VirtualMapView(
-                                    markers = mockRiskZones.mapIndexed { i, z ->
-                                        val (x, y) = mapPositions[i % mapPositions.size]
-                                        MapMarker(id = z.id, x = x, y = y, label = "${z.name} (위험도: ${z.riskScore})", riskGrade = z.riskGrade, onClick = { selectedZoneId = z.id })
-                                    }
-                                )
-                            }
-                            Text("[향후 실제 지도 연동 예정]", fontSize = 11.sp, color = AppColors.TextSub, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(8.dp))
-                        }
-                    }
-                    // 선택된 구간 정보
-                    val sel = mockRiskZones.find { it.id == selectedZoneId }
-                    if (sel != null) {
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = CardDefaults.cardColors(containerColor = AppColors.Card),
-                            shape = RoundedCornerShape(12.dp), elevation = CardDefaults.cardElevation(1.dp)
-                        ) {
-                            Column(modifier = Modifier.padding(14.dp)) {
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(sel.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text)
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text("📍", fontSize = 11.sp)
-                                            Text(sel.location, fontSize = 11.sp, color = AppColors.TextSub, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        }
-                                    }
-                                    TextButton(onClick = { selectedZoneId = null }) { Text("✕", color = AppColors.TextSub) }
-                                }
-                                Spacer(Modifier.height(8.dp))
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Box(
-                                        modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(riskGradeBg(sel.riskGrade)).padding(horizontal = 8.dp, vertical = 4.dp)
-                                    ) { Text(riskGradeLabel(sel.riskGrade), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = riskGradeColor(sel.riskGrade)) }
-                                    Text("위험도 ${sel.riskScore}  ·  발생 ${sel.eventCount}회", fontSize = 12.sp, color = AppColors.TextSub)
-                                }
-                                Spacer(Modifier.height(6.dp))
-                                Text(sel.description, fontSize = 12.sp, color = AppColors.TextSub)
-                            }
-                        }
+                        CircularProgressIndicator(
+                            color = AppColors.Primary
+                        )
+
+                        Spacer(Modifier.height(12.dp))
+
+                        Text(
+                            "위험 구간을 불러오는 중...",
+                            fontSize = 13.sp,
+                            color = AppColors.TextSub
+                        )
                     }
                 }
             }
-            else -> { // list
+
+            errorMessage != null -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "위험 구간 정보를 불러오지 못했어요.\n${errorMessage}",
+                        fontSize = 13.sp,
+                        color = AppColors.TextSub,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+
+            riskZones.isEmpty() -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            "아직 등록된 위험 구간이 없어요.",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = AppColors.Text
+                        )
+
+                        Spacer(Modifier.height(8.dp))
+
+                        Text(
+                            "위험 구간이 등록되면 이곳에 표시됩니다.",
+                            fontSize = 12.sp,
+                            color = AppColors.TextSub,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            }
+
+            else -> {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+                    contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    items(mockRiskZones.sortedByDescending { it.riskScore }) { zone ->
-                        val isExpanded = selectedZoneId == zone.id
+                    items(
+                        riskZones.sortedByDescending {
+                            it.riskScore ?: -1
+                        }
+                    ) { zone ->
+                        val expanded = selectedZoneId == zone.zoneId
+
                         Card(
-                            modifier = Modifier.fillMaxWidth().clickable { selectedZoneId = if (isExpanded) null else zone.id },
-                            colors = CardDefaults.cardColors(containerColor = AppColors.Card),
-                            shape = RoundedCornerShape(12.dp), elevation = CardDefaults.cardElevation(2.dp)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    selectedZoneId =
+                                        if (expanded) null else zone.zoneId
+                                },
+                            colors = CardDefaults.cardColors(
+                                containerColor = AppColors.Card
+                            ),
+                            shape = RoundedCornerShape(12.dp)
                         ) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(zone.name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text)
-                                        Spacer(Modifier.height(3.dp))
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text("📍", fontSize = 11.sp)
-                                            Text(zone.location, fontSize = 11.sp, color = AppColors.TextSub, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        }
-                                    }
-                                    Box(
-                                        modifier = Modifier.clip(RoundedCornerShape(6.dp))
-                                            .background(riskGradeBg(zone.riskGrade))
-                                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                                    ) { Text(riskGradeLabel(zone.riskGrade), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = riskGradeColor(zone.riskGrade)) }
-                                }
-                                Spacer(Modifier.height(12.dp))
-                                // 위험도 바
-                                Box(
-                                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
-                                        .background(AppColors.Surface).padding(12.dp)
-                                ) {
-                                    Column {
-                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                            Text("위험도", fontSize = 12.sp, color = AppColors.TextSub)
-                                            Text("${zone.riskScore}", fontSize = 18.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, color = AppColors.Text)
-                                        }
-                                        Spacer(Modifier.height(6.dp))
-                                        Box(
-                                            modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)).background(AppColors.Border)
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = "위험 구간 #${zone.zoneId}",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = AppColors.Text
+                                )
+
+                                Text(
+                                    text = "위험 등급: ${zone.riskGrade ?: "정보 없음"}",
+                                    fontSize = 13.sp,
+                                    color = AppColors.Text
+                                )
+
+                                Text(
+                                    text = "위험 점수: ${zone.riskScore?.toString() ?: "정보 없음"}",
+                                    fontSize = 12.sp,
+                                    color = AppColors.TextSub
+                                )
+
+                                Text(
+                                    text = "위험 발생: ${zone.zoneEventCount?.toString() ?: "정보 없음"}회",
+                                    fontSize = 12.sp,
+                                    color = AppColors.TextSub
+                                )
+
+                                if (expanded) {
+                                    HDivider()
+
+                                    Text(
+                                        text = zone.reason
+                                            ?.takeIf { it.isNotBlank() }
+                                            ?: "상세 분석 정보가 없습니다.",
+                                        fontSize = 12.sp,
+                                        color = AppColors.TextSub
+                                    )
+
+                                    Text(
+                                        text = if (
+                                            zone.latitude != null &&
+                                            zone.longitude != null
                                         ) {
-                                            Box(
-                                                modifier = Modifier.fillMaxWidth(zone.riskScore / 100f).fillMaxHeight().clip(RoundedCornerShape(4.dp)).background(riskGradeColor(zone.riskGrade))
+                                            "좌표: %.4f, %.4f".format(
+                                                java.util.Locale.US,
+                                                zone.latitude,
+                                                zone.longitude
                                             )
-                                        }
-                                    }
-                                }
-                                Spacer(Modifier.height(8.dp))
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("!", fontSize = 12.sp, color = AppColors.TextSub)
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("위험 발생 ${zone.eventCount}회", fontSize = 12.sp, color = AppColors.TextSub)
-                                }
-                                if (isExpanded) {
-                                    HDivider(modifier = Modifier.padding(vertical = 10.dp))
-                                    Box(
-                                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
-                                            .background(AppColors.Surface).padding(10.dp)
-                                    ) { Text(zone.description, fontSize = 12.sp, color = AppColors.TextSub) }
-                                    Spacer(Modifier.height(6.dp))
-                                    Text("좌표: ${"%.4f".format(zone.lat)}, ${"%.4f".format(zone.lng)}", fontSize = 11.sp, color = AppColors.TextSub)
+                                        } else {
+                                            "위치 정보 없음"
+                                        },
+                                        fontSize = 12.sp,
+                                        color = AppColors.TextSub
+                                    )
                                 }
                             }
                         }
@@ -2712,12 +3117,43 @@ fun RiskZonesScreen(onNavigate: (Screen) -> Unit) {
         }
     }
 }
-
 // ══════════════════════════════════════════════════════════════════════
 // 12. 설정 화면
 // ══════════════════════════════════════════════════════════════════════
 @Composable
 fun SettingsScreen(onNavigate: (Screen) -> Unit) {
+    var devices by remember {
+        mutableStateOf<List<ServerDevice>>(emptyList())
+    }
+
+    var deviceLoading by remember {
+        mutableStateOf(true)
+    }
+
+    var deviceError by remember {
+        mutableStateOf(false)
+    }
+
+    LaunchedEffect(Unit) {
+        deviceLoading = true
+        deviceError = false
+
+        try {
+            devices = fetchRegisteredDevices()
+        } catch (e: Exception) {
+            deviceError = true
+        } finally {
+            deviceLoading = false
+        }
+    }
+
+    val sensorSubtitle = when {
+        deviceLoading -> "센서 정보 조회 중..."
+        deviceError -> "센서 정보를 불러올 수 없음"
+        devices.isEmpty() -> "등록된 센서 없음"
+        devices.size == 1 -> devices.first().deviceId
+        else -> "등록된 센서 ${devices.size}개"
+    }
     Column(modifier = Modifier.fillMaxSize().background(AppColors.Background)) {
         AppTopBar(title = "설정", showBack = true, onBack = { onNavigate(Screen.MainDriving) })
         LazyColumn(
@@ -2727,7 +3163,13 @@ fun SettingsScreen(onNavigate: (Screen) -> Unit) {
         ) {
             item {
                 SettingsSection(title = "디바이스") {
-                    SettingsRow(icon = "📶", title = "센서 모듈 관리", subtitle = "DongHaeng-ESP32-A1B2") { onNavigate(Screen.SensorManagement) }
+                    SettingsRow(
+                        icon = "📶",
+                        title = "센서 모듈 관리",
+                        subtitle = sensorSubtitle
+                    ) {
+                        onNavigate(Screen.SensorManagement)
+                    }
                 }
             }
             item {

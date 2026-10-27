@@ -1,0 +1,42 @@
+﻿
+app\src\main\java\com\donghaeng\guard\MainActivity.kt:123:    object Login  
+               : Screen()
+app\src\main\java\com\donghaeng\guard\MainActivity.kt:124:    object LoginFo
+rm             : Screen()
+app\src\main\java\com\donghaeng\guard\MainActivity.kt:125:    object Signup 
+               : Screen()
+app\src\main\java\com\donghaeng\guard\MainActivity.kt:441:                  
+  Screen.Login                 -> LoginScreen                { screen = it }
+app\src\main\java\com\donghaeng\guard\MainActivity.kt:442:                  
+  Screen.LoginForm             -> LoginFormScreen            { screen = it }
+app\src\main\java\com\donghaeng\guard\MainActivity.kt:443:                  
+  Screen.Signup                -> SignupScreen               { screen = it }
+app\src\main\java\com\donghaeng\guard\MainActivity.kt:566:                on
+Click = { onNavigate(Screen.Login) },
+app\src\main\java\com\donghaeng\guard\MainActivity.kt:579:fun LoginScreen(on
+Navigate: (Screen) -> Unit) {
+app\src\main\java\com\donghaeng\guard\MainActivity.kt:610:            TextBu
+tton(onClick = { onNavigate(Screen.LoginForm) }) {
+app\src\main\java\com\donghaeng\guard\MainActivity.kt:614:            TextBu
+tton(onClick = { onNavigate(Screen.Signup) }) {
+app\src\main\java\com\donghaeng\guard\MainActivity.kt:625:fun LoginFormScree
+n(onNavigate: (Screen) -> Unit) {
+app\src\main\java\com\donghaeng\guard\MainActivity.kt:633:        AppTopBar(
+title = "로그인", showBack = true, onBack = { onNavigate(Screen.Login) })
+app\src\main\java\com\donghaeng\guard\MainActivity.kt:686:                Te
+xtButton(onClick = { onNavigate(Screen.Signup) }) {
+app\src\main\java\com\donghaeng\guard\MainActivity.kt:705:fun SignupScreen(o
+nNavigate: (Screen) -> Unit) {
+app\src\main\java\com\donghaeng\guard\MainActivity.kt:719:        AppTopBar(
+title = "회원가입", showBack = true, onBack = { onNavigate(Screen.Login) })
+app\src\main\java\com\donghaeng\guard\MainActivity.kt:835:                  
+  TextButton(onClick = { onNavigate(Screen.LoginForm) }) {
+app\src\main\java\com\donghaeng\guard\MainActivity.kt:868:        AppTopBar(
+title = "센서 연결", showBack = true, onBack = { onNavigate(Screen.Login) })
+app\src\main\java\com\donghaeng\guard\MainActivity.kt:2641:                T
+extButton(onClick = { showLogoutDialog = false; onNavigate(Screen.Login) }) 
+{
+app\src\main\java\com\donghaeng\guard\MainActivity.kt:2717:                 
+   onClick = { onNavigate(Screen.Signup) },
+
+
