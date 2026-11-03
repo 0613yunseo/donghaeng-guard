@@ -24,24 +24,7 @@ import {
   YAxis,
 } from "recharts";
 
-import type { TripApiResponse, TripDetailResponse } from "../types/tripApi";
-
-interface TripListItemResponse {
-  tripId: number;
-  startedAt: string;
-  endedAt: string | null;
-  status: TripStatus;
-  eventCount: number;
-  highestRiskLevel: RiskLevel | null;
-  deviceId?: string | null;
-  deviceName?: string | null;
-}
-
-interface TripListApiResponse {
-  success: boolean;
-  data: TripListItemResponse[] | null;
-  message: string;
-}
+import type { TripApiResponse, TripDetailResponse, TripListApiResponse } from "../types/tripApi";
 
 const DEFAULT_USER_ID = "1";
 
@@ -72,7 +55,7 @@ export function Trips() {
 
     async function loadTrips() {
       try {
-        const response = await fetch("http://localhost:8081/api/trips?userId=1", {
+        const response = await fetch("/api/trips?userId=1", {
           signal: controller.signal,
         });
 
@@ -136,7 +119,7 @@ export function Trips() {
 
       try {
         const response = await fetch(
-          `http://localhost:8081/api/trips/${selectedTripId}`,
+          `/api/trips/${selectedTripId}`,
           { signal: controller.signal }
         );
 

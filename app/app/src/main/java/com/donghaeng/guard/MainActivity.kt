@@ -91,7 +91,8 @@ import kotlinx.coroutines.launch
 import org.json.JSONObject
 
 //백엔드 포트 관리
-const val API_BASE_URL = "http://172.18.95.27:8081"
+const val API_BASE_URL = "http://172.18.32.74:8081"
+
 // ══════════════════════════════════════════════════════════════════════
 // 색상 시스템 (theme.css → AppColors)
 // ══════════════════════════════════════════════════════════════════════
@@ -273,6 +274,90 @@ data class TripDetail(
     val id: String, val date: String, val startTime: String,
     val endTime: String, val duration: String, val events: List<RiskEvent>
 )
+
+
+data class RiskSituation(
+    val startTime: String,
+    val endTime: String,
+    val highestRisk: RiskLevel,
+    val eventCount: Int,
+    val minDistanceMm: Int?,
+    val recovered: Boolean
+)
+
+fun summarizeRiskSituations(events: List<RiskEvent>): List<RiskSituation> {
+    val situations = mutableListOf<RiskSituation>()
+    val sorted = events.sortedBy { it.time }
+
+    var start: RiskEvent? = null
+    var last: RiskEvent? = null
+    var highest = RiskLevel.WARNING
+    var count = 0
+    var minDistance: Int? = null
+
+    fun finish(recovered: Boolean) {
+        val first = start ?: return
+        val end = last ?: first
+
+        situations.add(
+            RiskSituation(
+                startTime = first.time,
+                endTime = end.time,
+                highestRisk = highest,
+                eventCount = count,
+                minDistanceMm = minDistance,
+                recovered = recovered
+            )
+        )
+
+        start = null
+        last = null
+        highest = RiskLevel.WARNING
+        count = 0
+        minDistance = null
+    }
+
+    for (event in sorted) {
+        if (event.riskLevel == RiskLevel.SAFE) {
+            finish(recovered = true)
+            continue
+        }
+
+        val previous = last
+        if (previous != null) {
+            val gap = try {
+                val before = java.time.LocalTime.parse(previous.time)
+                val after = java.time.LocalTime.parse(event.time)
+                java.time.Duration.between(before, after).seconds
+            } catch (e: Exception) {
+                Long.MAX_VALUE
+            }
+
+            if (gap < 0 || gap > 10) {
+                finish(recovered = false)
+            }
+        }
+
+        if (start == null) start = event
+
+        last = event
+        count++
+
+        if (event.riskLevel == RiskLevel.DANGER) {
+            highest = RiskLevel.DANGER
+        }
+
+        if (event.distanceMm >= 0) {
+            minDistance = minDistance?.let {
+                minOf(it, event.distanceMm)
+            } ?: event.distanceMm
+        }
+    }
+
+    finish(recovered = false)
+    return situations
+}
+
 suspend fun fetchTripDetail(tripId: String): TripDetail {
     return withContext(Dispatchers.IO) {
         val connection = (
@@ -2078,20 +2163,55 @@ fun MainDrivingScreen(
                                 color = AppColors.TextSub
                             )
 
+                            // 서버 오류로 이전 AI 결과가 표시되는 경우
+                            if (aiError && aiPredictions.isNotEmpty()) {
+                                Text(
+                                    text = "서버 연결에 문제가 있어 이전에 조회한 AI 결과를 표시하고 있어요.",
+                                    fontSize = 12.sp,
+                                    color = AppColors.Warning
+                                )
+                            }
+
+                            // 기울기 AI
                             Text(
-                                text = "기울기 분석: ${predictionLabel(tiltPrediction)}",
+                                text = "기울기 AI: ${predictionLabel(tiltPrediction)}",
                                 fontSize = 12.sp,
                                 color = AppColors.Text
                             )
 
+                            if (tiltPrediction?.status == "SUCCESS") {
+                                Text(
+                                    text = "모델 점수: ${
+                                        tiltPrediction.predictedProbability?.let {
+                                            String.format(java.util.Locale.US, "%.3f", it)
+                                        } ?: "확인 불가"
+                                    } · 규칙 기반: ${riskLabel(tiltPrediction.ruleRisk)}",
+                                    fontSize = 11.sp,
+                                    color = AppColors.TextSub
+                                )
+                            }
+
+                            // 카메라 AI
                             Text(
-                                text = "주변 장애물 분석: ${predictionLabel(cameraPrediction)}",
+                                text = "카메라 AI: ${predictionLabel(cameraPrediction)}",
                                 fontSize = 12.sp,
                                 color = AppColors.Text
                             )
 
+                            if (cameraPrediction?.status == "SUCCESS") {
+                                Text(
+                                    text = "모델 점수: ${
+                                        cameraPrediction.predictedProbability?.let {
+                                            String.format(java.util.Locale.US, "%.3f", it)
+                                        } ?: "확인 불가"
+                                    } · 규칙 기반: ${riskLabel(cameraPrediction.ruleRisk)}",
+                                    fontSize = 11.sp,
+                                    color = AppColors.TextSub
+                                )
+                            }
+
                             Text(
-                                text = "AI 분석은 보조 정보이며, 실제 위험 알림은 센서 감지 결과를 우선해요.",
+                                text = "AI 예측은 실험용 보조 정보이며 모델 점수는 사고 확률이 아니에요. 실제 안전 알림은 기존 규칙 기반 판정을 따릅니다.",
                                 fontSize = 10.sp,
                                 color = AppColors.TextSub
                             )
@@ -2320,6 +2440,13 @@ fun TripEndScreen(
     var isLoading by remember(tripId) { mutableStateOf(true) }
     var errorMessage by remember(tripId) { mutableStateOf<String?>(null) }
 
+    var aiResults by remember(tripId) {
+        mutableStateOf<List<AiPredictionResult>>(emptyList())
+    }
+    var aiLoading by remember(tripId) { mutableStateOf(true) }
+    var aiError by remember(tripId) { mutableStateOf(false) }
+    var aiRefreshKey by remember(tripId) { mutableStateOf(0) }
+
     LaunchedEffect(tripId) {
         isLoading = true
         errorMessage = null
@@ -2331,6 +2458,60 @@ fun TripEndScreen(
         } finally {
             isLoading = false
         }
+    }
+
+    
+    LaunchedEffect(tripId, aiRefreshKey) {
+        aiLoading = true
+        aiError = false
+        aiResults = emptyList()
+
+        try {
+            // 주행 종료 직후 AI 저장이 늦어질 수 있으므로 최대 3회 조회
+            for (attempt in 0 until 3) {
+                aiResults = fetchAiPredictions(tripId)
+
+                val hasSuccess = aiResults.any {
+                    it.status == "SUCCESS"
+                }
+
+                if (hasSuccess) break
+
+                if (attempt < 2) {
+                    delay(3000)
+                }
+            }
+        } catch (e: Exception) {
+            aiError = true
+            android.util.Log.e(
+                "TRIP_END_AI",
+                "AI 결과 조회 실패",
+                e
+            )
+        } finally {
+            aiLoading = false
+        }
+    }
+
+
+    // 분석에 성공한 결과만 사용
+    val successfulAiResults = aiResults.filter {
+        it.status == "SUCCESS" && it.predictedRisk in listOf(
+            "SAFE", "WARNING", "DANGER"
+        )
+    }
+
+    fun highestPrediction(modelType: String): AiPredictionResult? {
+        return successfulAiResults
+            .filter { it.modelType == modelType }
+            .maxByOrNull {
+                when (it.predictedRisk) {
+                    "DANGER" -> 3
+                    "WARNING" -> 2
+                    "SAFE" -> 1
+                    else -> 0
+                }
+            }
     }
 
     Column(
@@ -2432,6 +2613,132 @@ fun TripEndScreen(
                 }
             }
         }
+
+        
+        Spacer(Modifier.height(16.dp))
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = AppColors.Card
+            ),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    "AI 종합 분석 리포트",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = AppColors.Text
+                )
+
+                Text(
+                    "이번 주행에서 저장된 AI 예측 결과를 요약합니다.",
+                    fontSize = 12.sp,
+                    color = AppColors.TextSub
+                )
+
+                when {
+                    aiLoading -> {
+                        CircularProgressIndicator(
+                            color = AppColors.Primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Text("AI 분석 결과를 불러오는 중...")
+                    }
+
+                    aiError -> {
+                        Text(
+                            "AI 결과 조회에 실패했습니다.",
+                            color = AppColors.Danger,
+                            fontSize = 13.sp
+                        )
+
+                        OutlinedButton(
+                            onClick = { aiRefreshKey++ }
+                        ) {
+                            Text("다시 조회")
+                        }
+                    }
+
+                    else -> {
+                        if (successfulAiResults.isEmpty()) {
+                            Text(
+                                "이번 주행의 AI 분석 결과가 아직 없습니다.",
+                                fontSize = 13.sp,
+                                color = AppColors.TextSub
+                            )
+
+                            OutlinedButton(
+                                onClick = { aiRefreshKey++ }
+                            ) {
+                                Text("AI 결과 새로고침")
+                            }
+                        }
+                        listOf(
+                            "TILT" to "기울기 AI",
+                            "CAMERA" to "카메라 AI"
+                        ).forEach { (modelType, label) ->
+                            val prediction = highestPrediction(modelType)
+
+                            val riskText = when (prediction?.predictedRisk) {
+                                "DANGER" -> "위험"
+                                "WARNING" -> "주의"
+                                "SAFE" -> "안전"
+                                else -> "결과 없음"
+                            }
+
+                            val riskTextColor = when (
+                                prediction?.predictedRisk
+                            ) {
+                                "DANGER" -> AppColors.Danger
+                                "WARNING" -> AppColors.Warning
+                                "SAFE" -> AppColors.Safe
+                                else -> AppColors.TextSub
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    label,
+                                    fontSize = 14.sp,
+                                    color = AppColors.Text
+                                )
+
+                                Text(
+                                    riskText,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = riskTextColor
+                                )
+                            }
+                        }
+
+                        HDivider()
+
+                        Text(
+                            "AI 분석 성공: ${successfulAiResults.size}건",
+                            fontSize = 12.sp,
+                            color = AppColors.TextSub
+                        )
+                    }
+                }
+
+                Text(
+                    "AI 예측은 보조 분석 정보이며 실제 사고 발생 확률을 의미하지 않습니다.",
+                    fontSize = 11.sp,
+                    color = AppColors.TextSub
+                )
+            }
+        }
+
+
+        
         Spacer(Modifier.height(24.dp))
         Button(
             onClick = { onNavigate(Screen.DrivingHistory) },
@@ -2461,6 +2768,7 @@ data class ServerTripRecord(
     val highestRiskLevel: String,
     val deviceId: String
 )
+
 
 suspend fun fetchTripHistory(userId: Long = 1L): List<ServerTripRecord> {
     return withContext(Dispatchers.IO) {
@@ -2493,7 +2801,7 @@ suspend fun fetchTripHistory(userId: Long = 1L): List<ServerTripRecord> {
 
             val array = root.getJSONArray("data")
 
-            List(array.length()) { index ->
+            val records = List(array.length()) { index ->
                 val item = array.getJSONObject(index)
 
                 ServerTripRecord(
@@ -2504,15 +2812,63 @@ suspend fun fetchTripHistory(userId: Long = 1L): List<ServerTripRecord> {
                     },
                     status = item.getString("status"),
                     eventCount = item.optInt("eventCount", 0),
-                    highestRiskLevel = item.optString("highestRiskLevel", "SAFE"),
+                    highestRiskLevel = item.optString(
+                        "highestRiskLevel", ""
+                    ).takeIf {
+                        it in listOf("SAFE", "WARNING", "DANGER")
+                    } ?: "",
                     deviceId = item.optString("deviceId", "")
                 )
+            }
+
+            // 최고 위험 등급이 없는 주행만 이벤트로 계산
+            records.map { trip ->
+                if (
+                    trip.eventCount > 0 &&
+                    trip.highestRiskLevel !in listOf(
+                        "SAFE", "WARNING", "DANGER"
+                    )
+                ) {
+                    try {
+                        val events = fetchTripDetail(
+                            trip.tripId.toString()
+                        ).events
+
+                        val highest = when {
+                            events.any {
+                                it.riskLevel == RiskLevel.DANGER
+                            } -> "DANGER"
+
+                            events.any {
+                                it.riskLevel == RiskLevel.WARNING
+                            } -> "WARNING"
+
+                            events.any {
+                                it.riskLevel == RiskLevel.SAFE
+                            } -> "SAFE"
+
+                            else -> ""
+                        }
+
+                        trip.copy(highestRiskLevel = highest)
+                    } catch (e: Exception) {
+                        android.util.Log.e(
+                            "TRIP_HISTORY",
+                            "주행 ${trip.tripId} 최고 위험 계산 실패",
+                            e
+                        )
+                        trip
+                    }
+                } else {
+                    trip
+                }
             }
         } finally {
             connection.disconnect()
         }
     }
 }
+
 @Composable
 fun DrivingHistoryScreen(onNavigate: (Screen) -> Unit) {
     var trips by remember {
@@ -2727,6 +3083,8 @@ fun DrivingDetailScreen(tripId: String, onNavigate: (Screen) -> Unit) {
             return
         }
 
+        val riskSituations = summarizeRiskSituations(d.events)
+
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(16.dp),
@@ -2761,6 +3119,94 @@ fun DrivingDetailScreen(tripId: String, onNavigate: (Screen) -> Unit) {
                     }
                 }
             }
+
+            
+            // 위험 상황 요약
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = AppColors.Card
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            "주행 위험 상황 요약",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = AppColors.Text
+                        )
+
+                        Text(
+                            "위험 상황 ${riskSituations.size}회 · 원본 이벤트 ${d.events.size}건",
+                            fontSize = 13.sp,
+                            color = AppColors.TextSub
+                        )
+
+                        if (riskSituations.isEmpty()) {
+                            Text(
+                                "기록된 주의·위험 상황이 없습니다.",
+                                fontSize = 13.sp,
+                                color = AppColors.Safe
+                            )
+                        }
+
+                        riskSituations.forEachIndexed { index, situation ->
+                            HDivider()
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        "위험 상황 ${index + 1}",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        "${situation.startTime} ~ ${situation.endTime}",
+                                        fontSize = 12.sp,
+                                        color = AppColors.TextSub
+                                    )
+                                    Text(
+                                        "측정 ${situation.eventCount}건 · " +
+                                            (situation.minDistanceMm?.let {
+                                                "최소 거리 ${it}mm"
+                                            } ?: "거리 정보 없음"),
+                                        fontSize = 12.sp,
+                                        color = AppColors.TextSub
+                                    )
+                                    Text(
+                                        if (situation.recovered) {
+                                            "안전 복귀 확인"
+                                        } else {
+                                            "안전 복귀 미확인"
+                                        },
+                                        fontSize = 12.sp,
+                                        color = AppColors.TextSub
+                                    )
+                                }
+
+                                Text(
+                                    riskLabel(situation.highestRisk),
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = riskColor(situation.highestRisk)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
 
             // 지도
             if (showMap) {
@@ -2845,7 +3291,13 @@ fun DrivingDetailScreen(tripId: String, onNavigate: (Screen) -> Unit) {
                                     Text(riskLabel(ev.riskLevel), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = riskColor(ev.riskLevel))
                                 }
                                 Spacer(Modifier.height(4.dp))
-                                Text("${ev.distanceMm}mm  ·  ${ev.location}", fontSize = 12.sp, color = AppColors.Text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(
+                                    text = "${if (ev.distanceMm >= 0) "${ev.distanceMm}mm" else "거리 정보 없음"}  ·  ${ev.location}",
+                                    fontSize = 12.sp,
+                                    color = AppColors.Text,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
                             Column(horizontalAlignment = Alignment.End) {
                                 Text(ev.time, fontSize = 12.sp, color = AppColors.TextSub)
@@ -2864,8 +3316,28 @@ fun DrivingDetailScreen(tripId: String, onNavigate: (Screen) -> Unit) {
                                     Column {
                                         Text("전방 거리", fontSize = 11.sp, color = AppColors.TextSub)
                                         Row(verticalAlignment = Alignment.Bottom) {
-                                            Text("${ev.distanceMm}", fontSize = 22.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, color = AppColors.Text)
-                                            Text(" mm", fontSize = 14.sp, color = AppColors.TextSub, modifier = Modifier.padding(bottom = 2.dp))
+                                            if (ev.distanceMm >= 0) {
+                                                Text(
+                                                    "${ev.distanceMm}",
+                                                    fontSize = 22.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    color = AppColors.Text
+                                                )
+                                                Text(
+                                                    " mm",
+                                                    fontSize = 14.sp,
+                                                    color = AppColors.TextSub,
+                                                    modifier = Modifier.padding(bottom = 2.dp)
+                                                )
+                                            } else {
+                                                Text(
+                                                    "거리 정보 없음",
+                                                    fontSize = 14.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    color = AppColors.TextSub
+                                                )
+                                            }
                                         }
                                     }
                                 }

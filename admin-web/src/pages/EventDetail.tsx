@@ -8,8 +8,8 @@ import { useTripDetail } from "../hooks/useTripDetail";
 import { MOCK_AI_PREDICTION } from "../mocks/aiPredictionMock";
 
 export function EventDetail() {
-  const { t, selId, onNav } = useApp();
-  const { events, loading, error } = useTripDetail();
+  const { t, selId, selTripId, onNav } = useApp();
+  const { events, loading, error } = useTripDetail(selTripId || null);
   const [zoom, setZoom] = useState(1);
   const e = events.find(x => x.id === selId);
   const mockAiResult = MOCK_AI_PREDICTION;
@@ -251,7 +251,7 @@ export function EventDetail() {
                   src={
                     e.imageUrl.startsWith("http")
                       ? e.imageUrl
-                      : `http://localhost:8081${e.imageUrl.startsWith("/") ? "" : "/"}${e.imageUrl}`
+                      : `http://172.18.95.27:8081${e.imageUrl.startsWith("/") ? "" : "/"}${e.imageUrl}`
                   }
                   alt={`${e.detectedObject ?? "객체"} 감지 이미지`}
                   className="w-full max-h-96 object-contain rounded-xl"
