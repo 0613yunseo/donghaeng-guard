@@ -694,7 +694,26 @@ suspend fun endTrip(tripId: Long): Boolean {
                 writer.flush()
             }
 
-            connection.responseCode in 200..299
+            val code = connection.responseCode
+
+            val responseBody = try {
+                val stream = if (code in 200..299) {
+                    connection.inputStream
+                } else {
+                    connection.errorStream
+                }
+
+                stream?.bufferedReader()?.use { it.readText() } ?: ""
+            } catch (e: Exception) {
+                ""
+            }
+
+            android.util.Log.d(
+                "TRIP_END",
+                "tripId=$tripId, HTTP=$code, response=$responseBody"
+            )
+
+            code in 200..299
         } catch (e: Exception) {
             false
         } finally {
@@ -2314,7 +2333,15 @@ fun MainDrivingScreen(
                 }
 
                 Button(
-                    onClick = { showEndDialog = true },
+                    onClick = {
+                        android.util.Log.d("TRIP_END", "주행 종료 버튼 클릭됨")
+                        Toast.makeText(
+                            context,
+                            "종료 버튼 클릭 확인",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                        showEndDialog = true
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp),
