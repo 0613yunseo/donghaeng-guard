@@ -3,7 +3,6 @@ package com.nulla.donghaeguard.service;
 import com.nulla.donghaeguard.entity.AiPrediction;
 import com.nulla.donghaeguard.entity.SensorEvent;
 import com.nulla.donghaeguard.repository.AiPredictionRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
@@ -14,38 +13,66 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class AiPredictionService {
 
     private final AiPredictionRepository aiPredictionRepository;
+    private final AiExplanationService aiExplanationService;
     private final RestTemplate restTemplate;
 
     @Value("${ai.server.url:http://localhost:8000}")
     private String aiServerUrl;
 
-    // 비동기 실행 제한: 최대 2개 동시, 큐 10개 초과 시 가장 오래된 것 버림
-    private final ExecutorService aiExecutor = new ThreadPoolExecutor(
-            2, 2, 60L, TimeUnit.SECONDS,
-            new LinkedBlockingQueue<>(10),
-            new ThreadPoolExecutor.DiscardOldestPolicy()
-    );
+    private final AtomicLong discardedCount = new AtomicLong(0);
+
+    private final ExecutorService aiExecutor;
+
+    public AiPredictionService(AiPredictionRepository aiPredictionRepository,
+                                AiExplanationService aiExplanationService,
+                                RestTemplate restTemplate) {
+        this.aiPredictionRepository = aiPredictionRepository;
+        this.aiExplanationService = aiExplanationService;
+        this.restTemplate = restTemplate;
+
+        this.aiExecutor = new ThreadPoolExecutor(
+                2, 2, 60L, TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>(10),
+                (r, executor) -> {
+                    long count = discardedCount.incrementAndGet();
+                    log.warn("[AI] 비동기 큐 초과 — 요청 버림 (누적 {}건)", count);
+                }
+        );
+    }
+
+    public long getDiscardedCount() {
+        return discardedCount.get();
+    }
 
     /**
-     * 트랜잭션 커밋 후 비동기 AI 예측 요청
+     * 트랜잭션 커밋 후 비동기 AI 예측 + LLM 설명 요청
      */
     public void predictAsync(String measurementId, Long tripId,
                               String ruleRiskLevel,
                               Map<String, Object> tiltData,
-                              Map<String, Object> cameraData) {
+                              Map<String, Object> cameraData,
+                              Map<String, Object> sensorContext) {
         aiExecutor.submit(() -> {
+            // 1. AI 예측 (TILT, CAMERA)
             if (tiltData != null && !tiltData.isEmpty()) {
                 callPredict(measurementId, tripId, "TILT", ruleRiskLevel, tiltData);
             }
             if (cameraData != null && !cameraData.isEmpty()) {
                 callPredict(measurementId, tripId, "CAMERA", ruleRiskLevel, cameraData);
+            }
+
+            // 2. LLM 설명 생성 (WARNING/DANGER일 때만)
+            try {
+                aiExplanationService.explainAsync(measurementId, tripId, ruleRiskLevel, sensorContext);
+            } catch (Exception e) {
+                log.warn("[AI Explain] 호출 실패: {}", e.getMessage());
             }
         });
     }
@@ -54,6 +81,12 @@ public class AiPredictionService {
     private void callPredict(String measurementId, Long tripId,
                               String modelType, String ruleRiskLevel,
                               Map<String, Object> features) {
+
+        if (aiPredictionRepository.existsByMeasurementIdAndModelType(measurementId, modelType)) {
+            log.debug("[AI] 중복 건너뜀: {} / {}", measurementId, modelType);
+            return;
+        }
+
         AiPrediction.AiPredictionBuilder builder = AiPrediction.builder()
                 .measurementId(measurementId)
                 .tripId(tripId)
@@ -85,7 +118,6 @@ public class AiPredictionService {
                 Number probability = (Number) body.get("probability");
                 String modelVersion = (String) body.get("modelVersion");
 
-                // warnings 배열 → 쉼표 구분 문자열
                 String warningsStr = null;
                 Object warningsObj = body.get("warnings");
                 if (warningsObj instanceof List<?> warningsList && !warningsList.isEmpty()) {
@@ -137,6 +169,8 @@ public class AiPredictionService {
 
         try {
             aiPredictionRepository.save(builder.build());
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            log.debug("[AI] 중복 저장 방지됨 (UK): {} / {}", measurementId, modelType);
         } catch (Exception e) {
             log.error("[AI] 예측 저장 실패: {}", e.getMessage());
         }
