@@ -25,6 +25,10 @@ public class AiExplanationService {
     @Value("${ai.server.url:http://localhost:8000}")
     private String aiServerUrl;
 
+    // trip별 마지막 /explain 호출 시각 (30초 쓰로틀링)
+    private final ConcurrentHashMap<Long, Long> lastExplainTime = new ConcurrentHashMap<>();
+    private static final long EXPLAIN_INTERVAL_MS = 30_000; // 30초
+
     private final ExecutorService explainExecutor = new ThreadPoolExecutor(
             1, 1, 60L, TimeUnit.SECONDS,
             new LinkedBlockingQueue<>(5),
@@ -41,13 +45,22 @@ public class AiExplanationService {
 
     /**
      * AI 예측 완료 후 비동기로 /explain 호출
-     * WARNING 또는 DANGER일 때만 호출 (SAFE는 설명 불필요)
+     * - SAFE는 호출하지 않음
+     * - 같은 trip에서 30초 이내 재호출 방지
      */
     public void explainAsync(String measurementId, Long tripId, String ruleRisk,
                               Map<String, Object> sensorContext) {
         if ("SAFE".equals(ruleRisk)) {
             return;
         }
+
+        // 30초 쓰로틀링: 같은 trip에서 30초 이내면 건너뜀
+        long now = System.currentTimeMillis();
+        Long lastTime = lastExplainTime.get(tripId);
+        if (lastTime != null && (now - lastTime) < EXPLAIN_INTERVAL_MS) {
+            return;
+        }
+        lastExplainTime.put(tripId, now);
 
         explainExecutor.submit(() -> callExplain(measurementId, tripId, ruleRisk, sensorContext));
     }
@@ -66,7 +79,6 @@ public class AiExplanationService {
                 .createdAt(LocalDateTime.now());
 
         try {
-            // AI 예측 결과 조회
             List<AiPrediction> predictions = aiPredictionRepository.findByMeasurementId(measurementId);
             List<Map<String, Object>> aiPredictions = new ArrayList<>();
             for (AiPrediction p : predictions) {
@@ -78,7 +90,6 @@ public class AiExplanationService {
                 aiPredictions.add(pred);
             }
 
-            // /explain 요청 구성
             Map<String, Object> requestBody = new HashMap<>();
             requestBody.put("measurementId", measurementId);
             requestBody.put("tripId", tripId);
