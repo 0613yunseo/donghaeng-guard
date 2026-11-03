@@ -38,9 +38,6 @@ public class MeasurementService {
     private final EntityManager entityManager;
     private final AiPredictionService aiPredictionService;
 
-    // =========================================================
-    // 저장: 측정 주기 1회분을 한 트랜잭션으로 저장
-    // =========================================================
     @Transactional
     public String saveMeasurement(MeasurementRequest req) {
         if (measurementRepository.existsById(req.measurementId())) {
@@ -123,7 +120,7 @@ public class MeasurementService {
                     .build());
         }
 
-        // ----- 카메라: 객체 검출 시에만 camera_events 생성 -----
+        // ----- 카메라: 객체 검출 시에만 -----
         if (cam != null && Boolean.TRUE.equals(cam.objectDetected())) {
             SensorEvent se = saveBaseEvent(measurement, trip, device,
                     SensorEvent.SensorType.CAMERA, riskLevel, detectedAt, latitude, longitude);
@@ -137,35 +134,24 @@ public class MeasurementService {
                     .build());
         }
 
-        // ===== AI 비동기 호출: DB 커밋 이후 실행 =====
-        scheduleAiPrediction(req.measurementId(), req.tripId(), req.riskLevel(), tilt, cam);
+        // ===== AI 예측 + LLM 설명: DB 커밋 이후 비동기 실행 =====
+        scheduleAiPrediction(req.measurementId(), req.tripId(), req.riskLevel(), us, tilt, cam);
 
         return measurement.getMeasurementId();
     }
 
-    /**
-     * AI 예측 호출을 트랜잭션 커밋 후에 실행하도록 등록
-     *
-     * [TILT 모델]
-     * - FastAPI가 pitch_raw만 사용 (pitch_diff, slope_status는 학습 입력 아님)
-     * - pitchRaw가 null이거나 0.0이면 전송하지 않음 (FastAPI가 0은 422 거부)
-     *
-     * [CAMERA 모델]
-     * - FastAPI가 confidence, std_dev, detected_object만 사용
-     * - objectDetected=false이면 전송하지 않음 (FastAPI가 422 거부)
-     */
     private void scheduleAiPrediction(String measurementId, Long tripId, String riskLevel,
-                                       MeasurementRequest.Tilt tilt, MeasurementRequest.Camera cam) {
-        // TILT 피처: pitchRaw가 null이거나 0.0이면 전송하지 않음
+                                      MeasurementRequest.Ultrasonic us,
+                                      MeasurementRequest.Tilt tilt,
+                                      MeasurementRequest.Camera cam) {
+        // TILT 피처
         Map<String, Object> tiltFeatures = null;
         if (tilt != null && Boolean.TRUE.equals(tilt.valid())
                 && tilt.pitchRaw() != null && tilt.pitchRaw() != 0.0) {
-            tiltFeatures = Map.of(
-                    "pitch_raw", tilt.pitchRaw()
-            );
+            tiltFeatures = Map.of("pitch_raw", tilt.pitchRaw());
         }
 
-        // CAMERA 피처: objectDetected=true이고 필수 필드가 있을 때만
+        // CAMERA 피처
         Map<String, Object> cameraFeatures = null;
         if (cam != null && Boolean.TRUE.equals(cam.valid())
                 && Boolean.TRUE.equals(cam.objectDetected())
@@ -178,21 +164,40 @@ public class MeasurementService {
             cameraFeatures = cf;
         }
 
-        // 둘 다 없으면 AI 호출 불필요
+        // sensorContext: /explain API용 센서 측정값 요약
+        Map<String, Object> sensorContext = new HashMap<>();
+        if (us != null) {
+            sensorContext.put("frontMinMm", us.frontMinMm());
+            sensorContext.put("rearMinMm", us.rearMinMm());
+        }
+        if (tilt != null) {
+            sensorContext.put("pitchRaw", tilt.pitchRaw());
+            sensorContext.put("pitchDiff", tilt.pitchDiff());
+            sensorContext.put("slopeStatus", tilt.slopeStatus());
+        }
+        if (cam != null) {
+            sensorContext.put("objectDetected", cam.objectDetected());
+            sensorContext.put("detectedObject", cam.detectedObject());
+            sensorContext.put("confidence", cam.confidence());
+            sensorContext.put("stdDev", cam.stdDev());
+            sensorContext.put("maxBoxRatio", cam.maxBoxRatio());
+        }
+
         if (tiltFeatures == null && cameraFeatures == null) {
             return;
         }
 
         final Map<String, Object> finalTilt = tiltFeatures;
         final Map<String, Object> finalCam = cameraFeatures;
+        final Map<String, Object> finalCtx = sensorContext;
 
-        // 트랜잭션 커밋 이후에 AI 호출
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
                 try {
                     aiPredictionService.predictAsync(
-                            measurementId, tripId, riskLevel, finalTilt, finalCam);
+                            measurementId, tripId, riskLevel,
+                            finalTilt, finalCam, finalCtx);
                 } catch (Exception e) {
                     log.warn("[AI] 비동기 호출 등록 실패: {}", e.getMessage());
                 }
