@@ -1927,13 +1927,28 @@ fun MainDrivingScreen(
             }
         }
 
+
         Column(
             modifier = Modifier
                 .weight(1f)
-                .padding(horizontal = 20.dp, vertical = 8.dp),
+                .then(
+                    if (tripActive) {
+                        Modifier.verticalScroll(rememberScrollState())
+                    } else {
+                        Modifier
+                    }
+                )
+                .padding(
+                    start = 20.dp,
+                    end = 20.dp,
+                    top = 8.dp,
+                    bottom = 24.dp
+                ),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            if (!tripActive) {
+
+
+        if (!tripActive) {
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -2241,7 +2256,7 @@ fun MainDrivingScreen(
 
 
 
-                Spacer(Modifier.weight(1f))
+                Spacer(Modifier.height(12.dp))
 
                 OutlinedButton(
                     onClick = {
@@ -3034,6 +3049,7 @@ fun DrivingDetailScreen(tripId: String, onNavigate: (Screen) -> Unit) {
     var detail      by remember { mutableStateOf<TripDetail?>(null) }
     var expandedId  by remember { mutableStateOf<String?>(null) }
     var showMap     by remember { mutableStateOf(false) }
+    var showRawEvents by remember(tripId) { mutableStateOf(false) }
 
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
@@ -3111,6 +3127,20 @@ fun DrivingDetailScreen(tripId: String, onNavigate: (Screen) -> Unit) {
         }
 
         val riskSituations = summarizeRiskSituations(d.events)
+
+        // 위험 단계가 바뀐 이벤트만 추출 (첫 이벤트는 SAFE가 아닐 때만 포함). prevLevel: 직전 단계
+        val prevLevelById = mutableMapOf<String, RiskLevel?>()
+        val transitionEvents = mutableListOf<RiskEvent>()
+        var prevLevel: RiskLevel? = null
+        for (e in d.events.sortedBy { it.time }) {
+            val changed = if (prevLevel == null) e.riskLevel != RiskLevel.SAFE else e.riskLevel != prevLevel
+            if (changed) {
+                transitionEvents.add(e)
+                prevLevelById[e.id] = prevLevel
+            }
+            prevLevel = e.riskLevel
+        }
+        val shownEvents = if (showRawEvents) d.events else transitionEvents
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -3284,12 +3314,37 @@ fun DrivingDetailScreen(tripId: String, onNavigate: (Screen) -> Unit) {
             // 이벤트 헤더
             item {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("위험 이벤트", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text)
-                    Text("${d.events.size}건", fontSize = 13.sp, color = AppColors.TextSub)
+                    Text(
+                        if (showRawEvents) "원본 센서 이벤트" else "위험 단계 변경 이벤트",
+                        fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text
+                    )
+                    Text("${shownEvents.size}건", fontSize = 13.sp, color = AppColors.TextSub)
                 }
             }
 
-            items(d.events) { ev ->
+            item {
+                OutlinedButton(
+                    onClick = { showRawEvents = !showRawEvents; expandedId = null },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        if (showRawEvents) "접기" else "원본 이벤트 펼쳐보기 (${d.events.size}건)",
+                        color = AppColors.TextSub
+                    )
+                }
+            }
+
+            if (shownEvents.isEmpty()) {
+                item {
+                    Text(
+                        "위험 단계 변경 이력이 없습니다.",
+                        fontSize = 13.sp, color = AppColors.TextSub,
+                        modifier = Modifier.fillMaxWidth().padding(8.dp)
+                    )
+                }
+            }
+
+            items(shownEvents, key = { it.id }) { ev ->
                 val expanded = expandedId == ev.id
                 Box(
                     modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
@@ -3316,6 +3371,13 @@ fun DrivingDetailScreen(tripId: String, onNavigate: (Screen) -> Unit) {
                                     )
                                     Spacer(Modifier.width(6.dp))
                                     Text(riskLabel(ev.riskLevel), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = riskColor(ev.riskLevel))
+                                    if (!showRawEvents) {
+                                        Text(
+                                            prevLevelById[ev.id]?.let { "  (${riskLabel(it)} → ${riskLabel(ev.riskLevel)})" }
+                                                ?: "  (기록 시작)",
+                                            fontSize = 12.sp, color = AppColors.TextSub
+                                        )
+                                    }
                                 }
                                 Spacer(Modifier.height(4.dp))
                                 Text(
