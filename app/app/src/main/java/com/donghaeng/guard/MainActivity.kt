@@ -89,9 +89,12 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.viewinterop.AndroidView
 
 //백엔드 포트 관리
-const val API_BASE_URL = "http://172.18.32.74:8081"
+val API_BASE_URL: String = BuildConfig.API_BASE_URL
 
 // ══════════════════════════════════════════════════════════════════════
 // 색상 시스템 (theme.css → AppColors)
@@ -251,7 +254,6 @@ fun riskDesc(l: RiskLevel) = when (l) {
     RiskLevel.WARNING -> "전방에 주의가 필요합니다"
     RiskLevel.DANGER  -> "속도를 줄이고 전방을 확인하세요"
 }
-fun riskGradeColor(g: String) = when (g) { "HIGH" -> AppColors.Danger; "MEDIUM" -> AppColors.Warning; else -> AppColors.Safe }
 fun riskGradeBg(g: String)    = when (g) { "HIGH" -> AppColors.DangerBg; "MEDIUM" -> AppColors.WarningBg; else -> AppColors.SafeBg }
 fun riskGradeLabel(g: String) = when (g) { "HIGH" -> "높음"; "MEDIUM" -> "보통"; else -> "낮음" }
 
@@ -540,12 +542,6 @@ suspend fun fetchRiskZones(): List<ServerRiskZone> {
     }
 }
 
-data class MapMarker(
-    val id: String, val x: Float, val y: Float,
-    val label: String, val riskGrade: String,
-    val onClick: () -> Unit = {}
-)
-
 // ══════════════════════════════════════════════════════════════════════
 // Mock 데이터
 // ══════════════════════════════════════════════════════════════════════
@@ -715,6 +711,7 @@ suspend fun endTrip(tripId: Long): Boolean {
 
             code in 200..299
         } catch (e: Exception) {
+            android.util.Log.e("TRIP_END", "tripId=$tripId 종료 요청 실패", e)
             false
         } finally {
             connection.disconnect()
@@ -844,7 +841,7 @@ fun BottomNavBar(currentScreen: Screen, onNavigate: (Screen) -> Unit) {
     val tabs = listOf(
         Tab(Screen.MainDriving,   "주행",     "▶"),
         Tab(Screen.DrivingHistory,"기록",     "≡"),
-        Tab(Screen.RiskZones,     "위험구간", "!"),
+        Tab(Screen.RiskZones,     "안전 지도", "!"),
     )
     Surface(color = AppColors.Card, shadowElevation = 8.dp) {
         Row(
@@ -1948,7 +1945,7 @@ fun MainDrivingScreen(
         ) {
 
 
-        if (!tripActive) {
+            if (!tripActive) {
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -2258,7 +2255,11 @@ fun MainDrivingScreen(
 
                 Spacer(Modifier.height(12.dp))
 
-                OutlinedButton(
+                // 개발용 Mock 버튼은 디버그 빌드에서만 노출
+                val isDebuggable =
+                    (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+
+                if (isDebuggable) OutlinedButton(
                     onClick = {
                         val levels = RiskLevel.values()
                         val dists = listOf(1250, 450, 150)
@@ -3141,6 +3142,10 @@ fun DrivingDetailScreen(tripId: String, onNavigate: (Screen) -> Unit) {
             prevLevel = e.riskLevel
         }
         val shownEvents = if (showRawEvents) d.events else transitionEvents
+        val geoMarkers = transitionEvents.mapIndexedNotNull { idx, ev ->
+            if (ev.lat == null || ev.lng == null) null
+            else GeoMarker(ev.id, ev.lat, ev.lng, "${idx + 1}. ${riskLabel(ev.riskLevel)} (${ev.time})", riskColor(ev.riskLevel))
+        }
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -3279,33 +3284,23 @@ fun DrivingDetailScreen(tripId: String, onNavigate: (Screen) -> Unit) {
                                 Spacer(Modifier.width(8.dp))
                                 Column {
                                     Text("위험 발생 위치 지도", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text)
-                                    Text("${d.events.size}개의 위험 이벤트 위치", fontSize = 12.sp, color = AppColors.TextSub)
+                                    Text("위험 단계 변경 지점 ${geoMarkers.size}곳 (좌표 있는 이벤트만)", fontSize = 12.sp, color = AppColors.TextSub)
                                 }
                             }
-                            Box(modifier = Modifier.fillMaxWidth().height(240.dp)) {
-                                VirtualMapView(
-                                    markers = d.events.mapIndexed { idx, ev ->
-                                        val positions = listOf(
-                                            Pair(23f, 35f), Pair(45f, 28f), Pair(38f, 52f), Pair(62f, 41f)
-                                        )
-                                        val (x, y) = positions[idx % positions.size]
-                                        MapMarker(
-                                            id = ev.id, x = x, y = y,
-                                            label = "${idx + 1}. ${riskLabel(ev.riskLevel)} (${ev.time})",
-                                            riskGrade = when (ev.riskLevel) {
-                                                RiskLevel.DANGER -> "HIGH"; RiskLevel.WARNING -> "MEDIUM"; else -> "LOW"
-                                            },
-                                            onClick = { expandedId = ev.id; showMap = false }
-                                        )
-                                    }
+                            if (geoMarkers.isEmpty()) {
+                                Text(
+                                    "위치 좌표가 기록된 이벤트가 없습니다.",
+                                    fontSize = 12.sp, color = AppColors.TextSub,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.fillMaxWidth().padding(16.dp)
+                                )
+                            } else {
+                                OsmMapView(
+                                    markers = geoMarkers,
+                                    modifier = Modifier.fillMaxWidth().height(240.dp),
+                                    onMarkerClick = { id -> expandedId = id; showMap = false }
                                 )
                             }
-                            Text(
-                                "[향후 실제 지도 연동 예정]",
-                                fontSize = 11.sp, color = AppColors.TextSub,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.fillMaxWidth().padding(8.dp)
-                            )
                         }
                     }
                 }
@@ -3474,6 +3469,8 @@ fun RiskZonesScreen(onNavigate: (Screen) -> Unit) {
     var loading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var selectedZoneId by remember { mutableStateOf<Long?>(null) }
+    var showZoneMap by remember { mutableStateOf(false) }
+    var routeMode by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         loading = true
@@ -3503,7 +3500,7 @@ fun RiskZonesScreen(onNavigate: (Screen) -> Unit) {
                     .padding(16.dp)
             ) {
                 Text(
-                    text = "위험 구간",
+                    text = "안전 지도",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = AppColors.Text
@@ -3512,11 +3509,31 @@ fun RiskZonesScreen(onNavigate: (Screen) -> Unit) {
                 Spacer(Modifier.height(6.dp))
 
                 Text(
-                    text = "주행 데이터를 기반으로 확인된 위험 구간입니다.",
+                    text = if (routeMode) "출발지와 목적지를 선택해 안전 경로를 요청합니다."
+                           else "주행 데이터를 기반으로 확인된 위험 구간입니다.",
                     fontSize = 12.sp,
                     color = AppColors.TextSub
                 )
+
+                Spacer(Modifier.height(10.dp))
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(false to "위험구간 보기", true to "안전 경로 추천").forEach { (mode, label) ->
+                        if (routeMode == mode) {
+                            Button(onClick = {}, modifier = Modifier.weight(1f)) { Text(label, fontSize = 13.sp) }
+                        } else {
+                            OutlinedButton(onClick = { routeMode = mode }, modifier = Modifier.weight(1f)) {
+                                Text(label, fontSize = 13.sp, color = AppColors.TextSub)
+                            }
+                        }
+                    }
+                }
             }
+        }
+
+        if (routeMode) {
+            SafeRouteSection(riskZones = riskZones)
+            return@Column
         }
 
         when {
@@ -3589,6 +3606,73 @@ fun RiskZonesScreen(onNavigate: (Screen) -> Unit) {
             }
 
             else -> {
+              Column(modifier = Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (showZoneMap) {
+                        OutlinedButton(onClick = { showZoneMap = false }, modifier = Modifier.weight(1f)) {
+                            Text("목록", color = AppColors.TextSub)
+                        }
+                        Button(onClick = {}, modifier = Modifier.weight(1f)) { Text("지도") }
+                    } else {
+                        Button(onClick = {}, modifier = Modifier.weight(1f)) { Text("목록") }
+                        OutlinedButton(onClick = { showZoneMap = true }, modifier = Modifier.weight(1f)) {
+                            Text("지도", color = AppColors.TextSub)
+                        }
+                    }
+                }
+
+                if (showZoneMap) {
+                    val zoneMarkers = riskZones.mapNotNull { z ->
+                        val lat = z.latitude
+                        val lng = z.longitude
+                        if (lat == null || lng == null) null
+                        else GeoMarker(
+                            "${z.zoneId}", lat, lng, "위험 구간 #${z.zoneId}",
+                            when (z.riskGrade) {
+                                "HIGH" -> AppColors.Danger
+                                "MEDIUM" -> AppColors.Warning
+                                "LOW" -> AppColors.Safe
+                                else -> AppColors.TextSub
+                            }
+                        )
+                    }
+                    val selectedZone = riskZones.find { it.zoneId == selectedZoneId }
+
+                    if (zoneMarkers.isEmpty()) {
+                        Text(
+                            "좌표가 있는 위험 구간이 없습니다.",
+                            fontSize = 13.sp, color = AppColors.TextSub,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth().padding(24.dp)
+                        )
+                    } else {
+                        OsmMapView(
+                            markers = zoneMarkers,
+                            modifier = Modifier.fillMaxWidth().weight(1f),
+                            onMarkerClick = { id -> selectedZoneId = id.toLongOrNull() }
+                        )
+                    }
+                    if (selectedZone != null) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = AppColors.Card),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("위험 구간 #${selectedZone.zoneId}", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text)
+                                Text("위험 등급: ${selectedZone.riskGrade ?: "정보 없음"} · 점수: ${selectedZone.riskScore?.toString() ?: "정보 없음"}", fontSize = 12.sp, color = AppColors.TextSub)
+                                Text("위험 발생: ${selectedZone.zoneEventCount?.toString() ?: "정보 없음"}회", fontSize = 12.sp, color = AppColors.TextSub)
+                                Text(
+                                    selectedZone.reason?.takeIf { it.isNotBlank() } ?: "상세 분석 정보가 없습니다.",
+                                    fontSize = 12.sp, color = AppColors.TextSub
+                                )
+                            }
+                        }
+                    }
+                } else
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(16.dp),
@@ -3674,10 +3758,238 @@ fun RiskZonesScreen(onNavigate: (Screen) -> Unit) {
                         }
                     }
                 }
+              }
             }
         }
     }
 }
+
+// osmdroid 실제 지도 (API 키 불필요, OpenStreetMap 타일 사용)
+data class GeoMarker(val id: String, val lat: Double, val lng: Double, val title: String, val color: Color)
+
+@Composable
+fun OsmMapView(
+    markers: List<GeoMarker>,
+    modifier: Modifier = Modifier,
+    onMarkerClick: (String) -> Unit = {},
+    polyline: List<Pair<Double, Double>> = emptyList(),
+    onMapTap: ((Double, Double) -> Unit)? = null
+) {
+    val currentOnClick by rememberUpdatedState(onMarkerClick)
+    val currentOnTap by rememberUpdatedState(onMapTap)
+
+    AndroidView(
+        modifier = modifier,
+        factory = { ctx ->
+            org.osmdroid.config.Configuration.getInstance().apply {
+                userAgentValue = ctx.packageName
+                osmdroidBasePath = ctx.cacheDir
+                osmdroidTileCache = java.io.File(ctx.cacheDir, "osmdroid-tiles")
+            }
+            org.osmdroid.views.MapView(ctx).apply {
+                setTileSource(org.osmdroid.tileprovider.tilesource.TileSourceFactory.MAPNIK)
+                setMultiTouchControls(true)
+                // 스크롤 컨테이너 안에서도 지도 드래그가 가능하도록
+                setOnTouchListener { v, _ ->
+                    v.parent?.requestDisallowInterceptTouchEvent(true)
+                    false
+                }
+            }
+        },
+        update = { map ->
+            val key = markers to polyline
+            if (map.tag == key) return@AndroidView
+            map.tag = key
+            map.overlays.clear()
+
+            // 지도 탭 좌표 전달 (마커 탭이 우선 처리되도록 맨 아래 레이어에 둔다)
+            map.overlays.add(
+                org.osmdroid.views.overlay.MapEventsOverlay(object : org.osmdroid.events.MapEventsReceiver {
+                    override fun singleTapConfirmedHelper(p: org.osmdroid.util.GeoPoint): Boolean {
+                        val tap = currentOnTap ?: return false
+                        tap(p.latitude, p.longitude)
+                        return true
+                    }
+                    override fun longPressHelper(p: org.osmdroid.util.GeoPoint) = false
+                })
+            )
+
+            val linePoints = polyline.map { org.osmdroid.util.GeoPoint(it.first, it.second) }
+            if (linePoints.size >= 2) {
+                map.overlays.add(
+                    org.osmdroid.views.overlay.Polyline(map).apply {
+                        setPoints(linePoints)
+                        outlinePaint.color = AppColors.Primary.toArgb()
+                        outlinePaint.strokeWidth = 12f
+                    }
+                )
+            }
+
+            val points = markers.map { org.osmdroid.util.GeoPoint(it.lat, it.lng) }
+            markers.forEachIndexed { i, m ->
+                val dot = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.OVAL
+                    setColor(m.color.toArgb())
+                    setStroke(4, android.graphics.Color.WHITE)
+                    setSize(48, 48)
+                }
+                map.overlays.add(
+                    org.osmdroid.views.overlay.Marker(map).apply {
+                        position = points[i]
+                        icon = dot
+                        title = m.title
+                        setAnchor(
+                            org.osmdroid.views.overlay.Marker.ANCHOR_CENTER,
+                            org.osmdroid.views.overlay.Marker.ANCHOR_CENTER
+                        )
+                        setOnMarkerClickListener { marker, _ ->
+                            marker.showInfoWindow()
+                            currentOnClick(m.id)
+                            true
+                        }
+                    }
+                )
+            }
+
+            val fitPoints = points + linePoints
+            map.post {
+                if (fitPoints.size == 1) {
+                    map.controller.setZoom(16.0)
+                    map.controller.setCenter(fitPoints[0])
+                } else if (fitPoints.isNotEmpty()) {
+                    map.zoomToBoundingBox(org.osmdroid.util.BoundingBox.fromGeoPoints(fitPoints), false, 80)
+                }
+            }
+            map.invalidate()
+        },
+        onRelease = { it.onDetach() }
+    )
+}
+
+
+// 안전 경로 추천 UI. 백엔드 경로 API(POST /api/routes/recommend 예정)가 확정되기 전이라 요청은 보내지 않는다.
+@Composable
+fun SafeRouteSection(riskZones: List<ServerRiskZone>) {
+    val context = LocalContext.current
+    var start by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    var destination by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    var picking by remember { mutableStateOf<String?>(null) } // "start" | "destination" | null
+
+    fun useCurrentLocation() {
+        val loc = getCurrentLocation(context)
+        if (loc == null) {
+            Toast.makeText(context, "현재 위치를 가져올 수 없습니다. GPS를 켜고 다시 시도해 주세요.", Toast.LENGTH_SHORT).show()
+        } else {
+            start = loc
+        }
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { result ->
+        if (result.values.any { it }) useCurrentLocation()
+        else Toast.makeText(context, "위치 권한이 없어 현재 위치를 사용할 수 없습니다.", Toast.LENGTH_SHORT).show()
+    }
+
+    fun formatPoint(p: Pair<Double, Double>?) =
+        p?.let { "%.5f, %.5f".format(java.util.Locale.US, it.first, it.second) } ?: "선택 안 됨"
+
+    val markers = buildList {
+        riskZones.forEach { z ->
+            val lat = z.latitude
+            val lng = z.longitude
+            if (lat != null && lng != null) {
+                val c = when (z.riskGrade) {
+                    "HIGH" -> AppColors.Danger
+                    "MEDIUM" -> AppColors.Warning
+                    "LOW" -> AppColors.Safe
+                    else -> AppColors.TextSub
+                }
+                add(GeoMarker("zone-${z.zoneId}", lat, lng, "위험 구간 #${z.zoneId}", c.copy(alpha = 0.5f)))
+            }
+        }
+        start?.let { add(GeoMarker("start", it.first, it.second, "출발지", AppColors.Primary)) }
+        destination?.let { add(GeoMarker("destination", it.first, it.second, "목적지", AppColors.Text)) }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text("출발지: ${formatPoint(start)}", fontSize = 13.sp, color = AppColors.Text)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = {
+                        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+                            PackageManager.PERMISSION_GRANTED ||
+                            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) ==
+                            PackageManager.PERMISSION_GRANTED
+                        if (granted) useCurrentLocation()
+                        else permissionLauncher.launch(
+                            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+                        )
+                    },
+                    modifier = Modifier.weight(1f)
+                ) { Text("현재 위치", fontSize = 12.sp, color = AppColors.Text) }
+                OutlinedButton(
+                    onClick = { picking = "start" },
+                    modifier = Modifier.weight(1f)
+                ) { Text("지도에서 선택", fontSize = 12.sp, color = AppColors.Text) }
+            }
+
+            Text("목적지: ${formatPoint(destination)}", fontSize = 13.sp, color = AppColors.Text)
+            OutlinedButton(
+                onClick = { picking = "destination" },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("지도에서 목적지 선택", fontSize = 12.sp, color = AppColors.Text) }
+
+            picking?.let {
+                Text(
+                    if (it == "start") "지도를 눌러 출발지를 선택하세요." else "지도를 눌러 목적지를 선택하세요.",
+                    fontSize = 12.sp, color = AppColors.Primary, fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            // shortcut: 백엔드 경로 추천 API 미구현이라 비활성화, API 명세 확정 후 요청·결과(polyline) 연결
+            Button(
+                onClick = {},
+                enabled = false,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("안전 경로 요청 (백엔드 준비 중)") }
+        }
+
+        Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+            OsmMapView(
+                markers = markers,
+                modifier = Modifier.fillMaxSize(),
+                onMapTap = { lat, lng ->
+                    when (picking) {
+                        "start" -> start = lat to lng
+                        "destination" -> destination = lat to lng
+                    }
+                    picking = null
+                }
+            )
+            if (markers.isEmpty()) {
+                Text(
+                    "현재 위치 또는 지도를 눌러 출발지를 선택하세요.",
+                    fontSize = 12.sp, color = AppColors.TextSub,
+                    modifier = Modifier.align(Alignment.TopCenter).padding(8.dp)
+                        .background(AppColors.Card.copy(alpha = 0.9f), RoundedCornerShape(8.dp)).padding(8.dp)
+                )
+            }
+        }
+
+        Text(
+            "추천 경로는 참고 정보이며 안전을 보장하지 않습니다.",
+            fontSize = 11.sp, color = AppColors.TextSub,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().padding(8.dp)
+        )
+    }
+}
+
 // ══════════════════════════════════════════════════════════════════════
 // 12. 설정 화면
 // ══════════════════════════════════════════════════════════════════════
@@ -4149,172 +4461,6 @@ fun AccountScreen(onNavigate: (Screen) -> Unit) {
                 ) { Text("← 게스트 모드 종료", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Danger) }
             }
         }
-    }
-}
-
-// ══════════════════════════════════════════════════════════════════════
-// 16. 가상 지도 컴포저블 (Canvas 기반)
-// ══════════════════════════════════════════════════════════════════════
-@Composable
-fun VirtualMapView(
-    markers: List<MapMarker>,
-    modifier: Modifier = Modifier
-) {
-    var zoom by remember { mutableStateOf(1f) }
-
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .clip(RoundedCornerShape(8.dp))
-            .background(Color(0xFFF9FAFB))
-    ) {
-        Canvas(
-            modifier = Modifier
-                .fillMaxSize()
-                .scale(zoom)
-        ) {
-            val w = size.width
-            val h = size.height
-
-            drawRect(color = Color(0xFFF9FAFB))
-
-            listOf(0.20f, 0.45f, 0.70f).forEach { r ->
-                drawRect(
-                    color = Color(0xFFD1D5DB),
-                    topLeft = Offset(0f, h * r),
-                    size = Size(w, h * 0.025f)
-                )
-            }
-
-            listOf(0.25f, 0.55f, 0.82f).forEach { r ->
-                drawRect(
-                    color = Color(0xFFD1D5DB),
-                    topLeft = Offset(w * r, 0f),
-                    size = Size(w * 0.025f, h)
-                )
-            }
-
-            drawCircle(
-                color = Color(0xFFDCFCE7),
-                radius = h * 0.09f,
-                center = Offset(w * 0.12f, h * 0.33f)
-            )
-
-            drawCircle(
-                color = Color(0xFFDCFCE7),
-                radius = h * 0.07f,
-                center = Offset(w * 0.71f, h * 0.80f)
-            )
-
-            drawRect(
-                color = Color(0xFFBFDBFE),
-                topLeft = Offset(w * 0.30f, h * 0.06f),
-                size = Size(w * 0.18f, h * 0.11f)
-            )
-
-            drawRect(
-                color = Color(0xFFBFDBFE),
-                topLeft = Offset(w * 0.60f, h * 0.52f),
-                size = Size(w * 0.17f, h * 0.10f)
-            )
-        }
-
-        // mock 마커 표시
-        MapMarkerDot(
-            grade = "MEDIUM",
-            label = "▲",
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(start = 92.dp, top = 130.dp)
-        )
-
-        MapMarkerDot(
-            grade = "HIGH",
-            label = "!",
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(start = 170.dp, top = 210.dp)
-        )
-
-        MapMarkerDot(
-            grade = "MEDIUM",
-            label = "▲",
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(start = 230.dp, top = 290.dp)
-        )
-
-        MapMarkerDot(
-            grade = "HIGH",
-            label = "!",
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(start = 300.dp, top = 170.dp)
-        )
-
-        Column(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(AppColors.Card)
-                    .border(1.dp, AppColors.Border, RoundedCornerShape(8.dp))
-                    .clickable { zoom = (zoom + 0.25f).coerceAtMost(3f) },
-                contentAlignment = Alignment.Center
-            ) {
-                Text("+", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = AppColors.Text)
-            }
-
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(AppColors.Card)
-                    .border(1.dp, AppColors.Border, RoundedCornerShape(8.dp))
-                    .clickable { zoom = (zoom - 0.25f).coerceAtLeast(0.5f) },
-                contentAlignment = Alignment.Center
-            ) {
-                Text("-", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = AppColors.Text)
-            }
-
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(AppColors.Card)
-                    .border(1.dp, AppColors.Border, RoundedCornerShape(8.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("${(zoom * 100).toInt()}%", fontSize = 9.sp, color = AppColors.TextSub)
-            }
-        }
-    }
-}
-@Composable
-fun MapMarkerDot(
-    grade: String,
-    label: String,
-    modifier: Modifier = Modifier
-) {
-    Box(
-        modifier = modifier
-            .size(32.dp)
-            .clip(CircleShape)
-            .background(riskGradeColor(grade))
-            .border(2.dp, Color.White, CircleShape),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = label,
-            color = Color.White,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.ExtraBold
-        )
     }
 }
 
