@@ -139,6 +139,9 @@ export function EventDetail() {
         <div className="p-5 space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
+              <p className="text-[10px] mb-2" style={{ color: C.warn }}>
+                ※ 아래 AI 분석 값은 샘플입니다 (실제 AI 결과는 AI 분석 페이지 참고)
+              </p>
               <p
                 className="text-xs mb-1"
                 style={{ color: t.muted }}

@@ -26,30 +26,30 @@ const getRiskTypeLabel = (sensorType?: string) => {
  * 구버전 응답이 상태를 덮어쓰지 않도록 한다.
  */
 export function useTripDetail(tripId: string | null) {
-  const [data, setData] = useState<TripDetailResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [rawData, setData] = useState<TripDetailResponse | null>(null);
+  const [rawLoading, setLoading] = useState(false);
+  const [rawError, setError] = useState<string | null>(null);
+
+  // tripId가 없으면 이전 요청의 상태는 노출하지 않는다
+  const data = tripId ? rawData : null;
+  const loading = tripId ? rawLoading : false;
+  const error = tripId ? rawError : null;
 
   // tripId가 변경될 때마다 요청 시퀀스 번호를 증가시켜 stale 응답을 무시한다
   const requestSeqRef = useRef(0);
 
   useEffect(() => {
-    if (!tripId) {
-      setData(null);
-      setError(null);
-      setLoading(false);
-      return;
-    }
+    if (!tripId) return;
 
     const controller = new AbortController();
     const seq = ++requestSeqRef.current;
 
-    // 새 tripId 요청 즉시 이전 데이터 초기화 및 로딩 상태 표시
-    setData(null);
-    setError(null);
-    setLoading(true);
-
     async function load() {
+      // 새 tripId 요청 즉시 이전 데이터 초기화 및 로딩 상태 표시
+      setData(null);
+      setError(null);
+      setLoading(true);
+
       try {
         const response = await fetch(`/api/trips/${tripId}`, {
           signal: controller.signal,

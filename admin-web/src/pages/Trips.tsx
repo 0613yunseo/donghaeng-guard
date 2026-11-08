@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { Download } from "lucide-react";
 import { useApp } from "../contexts/AppContext";
@@ -24,20 +24,27 @@ import {
   YAxis,
 } from "recharts";
 
-import type { TripApiResponse, TripDetailResponse, TripListApiResponse } from "../types/tripApi";
+import { useTripList } from "../hooks/useTripList";
+import { useTripDetail } from "../hooks/useTripDetail";
 
 const DEFAULT_USER_ID = "1";
 
 export function Trips() {
   const { t } = useApp();
 
-  const [trips, setTrips] = useState<Trip[]>([]);
+  const { trips: tripItems, loading, error } = useTripList();
+  const trips: Trip[] = tripItems.map((trip) => ({
+    id: String(trip.tripId),
+    user: DEFAULT_USER_ID,
+    dev: trip.deviceName ?? trip.deviceId ?? "—",
+    st: trip.status,
+    start: trip.startedAt.replace("T", " "),
+    end: trip.endedAt?.replace("T", " ") ?? "—",
+    cnt: trip.eventCount,
+    rl: trip.highestRiskLevel,
+  }));
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
-  const [tripDetail, setTripDetail] = useState<TripDetailResponse | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailError, setDetailError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data: tripDetail, loading: detailLoading, error: detailError } = useTripDetail(selectedTripId);
 
   const [st, setSt] = useState("");
   const [rl, setRl] = useState("");
@@ -50,119 +57,6 @@ export function Trips() {
     dev: "",
     user: "",
   });
-  useEffect(() => {
-    const controller = new AbortController();
-
-    async function loadTrips() {
-      try {
-        const response = await fetch("/api/trips?userId=1", {
-          signal: controller.signal,
-        });
-
-        if (!response.ok) {
-          throw new Error(`주행 목록 조회에 실패했습니다. (HTTP ${response.status})`);
-        }
-
-        const result: TripListApiResponse = await response.json();
-
-        if (!result.success || !Array.isArray(result.data)) {
-          throw new Error(result.message || "주행 목록 응답을 확인할 수 없습니다.");
-        }
-
-        const mappedTrips: Trip[] = result.data.map((trip) => ({
-          id: String(trip.tripId),
-          user: DEFAULT_USER_ID,
-          dev: trip.deviceName ?? trip.deviceId ?? "—",
-          st: trip.status,
-          start: trip.startedAt.replace("T", " "),
-          end: trip.endedAt?.replace("T", " ") ?? "—",
-          cnt: trip.eventCount,
-          rl: trip.highestRiskLevel,
-        }));
-
-        if (!controller.signal.aborted) {
-          setTrips(mappedTrips);
-        }
-      } catch (cause) {
-        if (!controller.signal.aborted) {
-          setError(
-            cause instanceof Error
-              ? cause.message
-              : "주행 목록을 불러오지 못했습니다."
-          );
-        }
-      } finally {
-        if (!controller.signal.aborted) {
-          setLoading(false);
-        }
-      }
-    }
-
-    void loadTrips();
-
-    return () => controller.abort();
-  }, []);
-  useEffect(() => {
-    if (!selectedTripId) {
-      setTripDetail(null);
-      setDetailError(null);
-      setDetailLoading(false);
-      return;
-    }
-
-    const controller = new AbortController();
-
-    async function loadTripDetail() {
-      setDetailLoading(true);
-      setDetailError(null);
-      setTripDetail(null);
-
-      try {
-        const response = await fetch(
-          `/api/trips/${selectedTripId}`,
-          { signal: controller.signal }
-        );
-
-        if (!response.ok) {
-          throw new Error(
-            `주행 상세 조회 실패 (HTTP ${response.status})`
-          );
-        }
-
-        const result: TripApiResponse = await response.json();
-
-        if (
-          !result.success ||
-          !result.data ||
-          !Array.isArray(result.data.events)
-        ) {
-          throw new Error(
-            result.message || "주행 상세 응답이 올바르지 않습니다."
-          );
-        }
-
-        if (!controller.signal.aborted) {
-          setTripDetail(result.data);
-        }
-      } catch (cause) {
-        if (!controller.signal.aborted) {
-          setDetailError(
-            cause instanceof Error
-              ? cause.message
-              : "주행 데이터를 불러오지 못했습니다."
-          );
-        }
-      } finally {
-        if (!controller.signal.aborted) {
-          setDetailLoading(false);
-        }
-      }
-    }
-
-    void loadTripDetail();
-
-    return () => controller.abort();
-  }, [selectedTripId]);
   const distanceData = (tripDetail?.events ?? [])
     .filter(
       (event) =>

@@ -161,6 +161,10 @@ export function RiskEvents() {
           <p role="status" className="p-5 text-sm" style={{ color: t.muted }}>센서 이벤트를 불러오는 중입니다.</p>
         ) : error ? (
           <p role="alert" className="p-5 text-sm">{error}</p>
+        ) : events.length > 0 && transitionEvents.length === 0 ? (
+          <p className="p-5 text-sm" style={{ color: t.muted }}>
+            센서 측정 데이터는 존재하지만 위험 단계 변경 이력은 없습니다. (전체 측정 {events.length}건)
+          </p>
         ) : (
           <RiskEventTable events={filtered} onRowClick={(id) => onNav("event-detail", id, appliedTripId)} />
         )}

@@ -22,6 +22,9 @@ export function Reports() {
 
   return (
     <div className="space-y-5">
+      <p role="note" className="text-xs rounded-xl px-3 py-2" style={{ background: t.bgSub, color: t.muted, border: `1px solid ${t.border}` }}>
+        이 화면의 리포트 수치는 샘플 데이터입니다. 집계 API가 준비되면 실제 데이터로 교체됩니다.
+      </p>
       {/* Header row */}
       <div className="flex items-center justify-between">
         <div>

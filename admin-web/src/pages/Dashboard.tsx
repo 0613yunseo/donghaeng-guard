@@ -21,6 +21,9 @@ export function Dashboard() {
 
   return (
     <div className="space-y-5">
+      <p role="note" className="text-xs rounded-xl px-3 py-2" style={{ background: t.bgSub, color: t.muted, border: `1px solid ${t.border}` }}>
+        이 화면의 통계·추이·위험 구간은 샘플 데이터입니다. 집계 API가 준비되면 실제 데이터로 교체됩니다.
+      </p>
       {/* KPI cards */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         <StatCard title="전체 위험 이벤트" value="1,248" delta="+12.4%" up={true}  Icon={AlertTriangle} accent={C.danger} />

@@ -4,6 +4,7 @@ import { useApp } from '../contexts/AppContext';
 import { C } from '../constants/colors';
 import { Card, CardHead } from '../components/ui';
 import { RiskBadge } from '../components/badges/RiskBadge';
+import { useTripList } from '../hooks/useTripList';
 
 type Risk = 'SAFE' | 'WARNING' | 'DANGER';
 type AiRow = {
@@ -52,20 +53,27 @@ function AiModelCard({ row }: { row: AiRow }) {
 export function AIAnalysis() {
   const { t } = useApp();
   const [mode, setMode] = useState<QueryMode>('trip');
-  const [inputId, setInputId] = useState('7');
-  const [query, setQuery] = useState<{ mode: QueryMode; value: string }>({ mode: 'trip', value: '7' });
+  // 하드코딩된 주행 ID 대신 공용 주행 목록의 최신 주행을 기본값으로 사용 (직접 ID 입력도 가능)
+  const { trips: tripList } = useTripList();
+  const latestTripId = tripList[0] ? String(tripList[0].tripId) : '';
+  const [inputIdState, setInputId] = useState<string | null>(null);
+  const inputId = inputIdState ?? latestTripId;
+  const [queryState, setQuery] = useState<{ mode: QueryMode; value: string } | null>(null);
+  const query = queryState ?? (latestTripId ? { mode: 'trip' as QueryMode, value: latestTripId } : null);
   const [records, setRecords] = useState<AiRow[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
 
-  const url = query.mode === 'trip' ? `${ENDPOINT}?tripId=${encodeURIComponent(query.value)}` : `${ENDPOINT}/${encodeURIComponent(query.value)}`;
+  const url = !query ? null : query.mode === 'trip' ? `${ENDPOINT}?tripId=${encodeURIComponent(query.value)}` : `${ENDPOINT}/${encodeURIComponent(query.value)}`;
   useEffect(() => {
+    if (!url) return;
+    const target: string = url;
     const controller = new AbortController();
     async function run() {
-      setLoading(true); setError(null);
+      setLoading(true); setError(null); setRecords([]);
       try {
-        const response = await fetch(url, { signal: controller.signal, cache: 'no-store' });
+        const response = await fetch(target, { signal: controller.signal, cache: 'no-store' });
         if (!response.ok) throw new Error(`HTTP ${response.status} — 백엔드 주소/프록시를 확인해 주세요.`);
         const body: unknown = await response.json();
         if (!Array.isArray(body)) throw new Error('API 응답이 배열 형식이 아닙니다.');
@@ -106,19 +114,20 @@ export function AIAnalysis() {
           <div><p className="font-bold text-sm" style={{ color: t.text }}>센서 AI 예측 결과</p><p className="text-xs mt-1" style={{ color: t.muted }}>Spring Boot DB의 주행별 TILT·CAMERA 실험용 AI 보조 분석</p></div>
         </div>
         <form className="flex flex-wrap gap-2" onSubmit={handleSubmit}>
-          <select aria-label="조회 유형" className="h-9 rounded-xl px-3 text-sm" style={{ background: t.input, border: `1px solid ${t.border}`, color: t.text }} value={mode} onChange={e => { const next = e.target.value as QueryMode; setMode(next); setInputId(next === 'trip' ? '7' : ''); }}>
+          <select aria-label="조회 유형" className="h-9 rounded-xl px-3 text-sm" style={{ background: t.input, border: `1px solid ${t.border}`, color: t.text }} value={mode} onChange={e => { const next = e.target.value as QueryMode; setMode(next); setInputId(next === 'trip' ? null : ''); }}>
             <option value="trip">주행 ID</option><option value="measurement">측정 ID</option>
           </select>
-          <input aria-label={mode === 'trip' ? '주행 ID' : '측정 ID'} value={inputId} onChange={e => setInputId(e.target.value)} className="h-9 rounded-xl px-3 text-sm" style={{ background: t.input, border: `1px solid ${t.border}`, color: t.text }} placeholder={mode === 'trip' ? 'tripId (예: 7)' : 'measurementId'} />
+          <input aria-label={mode === 'trip' ? '주행 ID' : '측정 ID'} value={inputId} onChange={e => setInputId(e.target.value)} className="h-9 rounded-xl px-3 text-sm" style={{ background: t.input, border: `1px solid ${t.border}`, color: t.text }} placeholder={mode === 'trip' ? 'tripId' : 'measurementId'} list={mode === 'trip' ? 'ai-trip-options' : undefined} />
+          <datalist id="ai-trip-options">{tripList.map(tr => <option key={tr.tripId} value={String(tr.tripId)} />)}</datalist>
           <button type="submit" className="h-9 px-4 rounded-xl text-white text-sm font-semibold inline-flex gap-2 items-center" style={{ background: C.blue }} disabled={loading}><RefreshCw size={14} /> 조회 / 새로고침</button>
         </form>
       </div>
-      <p className="mt-3 text-xs break-all" style={{ color: t.muted }}>현재 조회: {query.mode === 'trip' ? `Trip ${query.value}` : `Measurement ${query.value}`} · API: {url}</p>
+      <p className="mt-3 text-xs break-all" style={{ color: t.muted }}>현재 조회: {query ? (query.mode === 'trip' ? `Trip ${query.value}` : `Measurement ${query.value}`) : '없음 (주행 ID를 입력하세요)'}{url ? ` · API: ${url}` : ''}</p>
     </Card>
     {error && <Card className="p-5"><p className="text-sm flex gap-2" style={{ color: C.danger }}><AlertCircle size={16} />{error}</p></Card>}
-    {loading && <Card className="p-5"><p className="text-sm" style={{ color: t.muted }}>AI 결과를 불러오는 중입니다…</p></Card>}
-    {!loading && !error && records.length === 0 && <Card className="p-5"><p className="text-sm" style={{ color: t.muted }}>해당 {query.mode === 'trip' ? '주행' : '측정'} ID에 저장된 AI 결과가 없습니다.</p></Card>}
-    {!loading && !error && records.length > 0 && <>
+    {query && loading && <Card className="p-5"><p className="text-sm" style={{ color: t.muted }}>AI 결과를 불러오는 중입니다…</p></Card>}
+    {query && !loading && !error && records.length === 0 && <Card className="p-5"><p className="text-sm" style={{ color: t.muted }}>해당 {query.mode === 'trip' ? '주행' : '측정'} ID에 저장된 AI 결과가 없습니다.</p></Card>}
+    {query && !loading && !error && records.length > 0 && <>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card className="p-5"><p className="text-xs" style={{ color: t.muted }}>조회된 AI 기록</p><p className="text-2xl font-bold mt-2" style={{ color: t.text }}>{records.length}건</p></Card>
         <Card className="p-5"><p className="text-xs" style={{ color: t.muted }}>예측 성공 (SUCCESS)</p><p className="text-2xl font-bold mt-2" style={{ color: t.text }}>{successCount}건</p></Card>
