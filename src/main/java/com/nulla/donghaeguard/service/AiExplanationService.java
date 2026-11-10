@@ -36,8 +36,8 @@ public class AiExplanationService {
     );
 
     public AiExplanationService(AiExplanationRepository aiExplanationRepository,
-                                 AiPredictionRepository aiPredictionRepository,
-                                 RestTemplate restTemplate) {
+                                AiPredictionRepository aiPredictionRepository,
+                                RestTemplate restTemplate) {
         this.aiExplanationRepository = aiExplanationRepository;
         this.aiPredictionRepository = aiPredictionRepository;
         this.restTemplate = restTemplate;
@@ -49,7 +49,7 @@ public class AiExplanationService {
      * - 같은 trip에서 30초 이내 재호출 방지
      */
     public void explainAsync(String measurementId, Long tripId, String ruleRisk,
-                              Map<String, Object> sensorContext) {
+                             Map<String, Object> sensorContext) {
         if ("SAFE".equals(ruleRisk)) {
             return;
         }
@@ -67,7 +67,7 @@ public class AiExplanationService {
 
     @SuppressWarnings("unchecked")
     private void callExplain(String measurementId, Long tripId, String ruleRisk,
-                              Map<String, Object> sensorContext) {
+                             Map<String, Object> sensorContext) {
         if (aiExplanationRepository.existsByMeasurementId(measurementId)) {
             return;
         }
