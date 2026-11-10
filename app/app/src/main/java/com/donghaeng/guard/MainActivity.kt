@@ -87,6 +87,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import androidx.compose.runtime.rememberUpdatedState
@@ -615,6 +617,42 @@ fun getCurrentLocation(context: Context): Pair<Double, Double>? {
 
     return null
 }
+// 마지막 위치가 없으면 위치를 1회 요청한다 (최대 8초). 권한이 없으면 null.
+suspend fun fetchCurrentLocation(context: Context): Pair<Double, Double>? {
+    getCurrentLocation(context)?.let { return it }
+
+    val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+        PackageManager.PERMISSION_GRANTED ||
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) ==
+        PackageManager.PERMISSION_GRANTED
+    if (!granted) return null
+
+    val manager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+    val provider = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+        .firstOrNull { manager.isProviderEnabled(it) } ?: return null
+
+    return withTimeoutOrNull(8000) {
+        suspendCancellableCoroutine { cont ->
+            val listener = object : android.location.LocationListener {
+                override fun onLocationChanged(location: android.location.Location) {
+                    if (cont.isActive) cont.resumeWith(Result.success(Pair(location.latitude, location.longitude)))
+                }
+                override fun onProviderEnabled(provider: String) {}
+                override fun onProviderDisabled(provider: String) {}
+                @Deprecated("API 29 이하 호환용")
+                override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+            }
+            try {
+                @Suppress("DEPRECATION")
+                manager.requestSingleUpdate(provider, listener, android.os.Looper.getMainLooper())
+            } catch (e: SecurityException) {
+                cont.resumeWith(Result.success(null))
+            }
+            cont.invokeOnCancellation { manager.removeUpdates(listener) }
+        }
+    }
+}
+
 suspend fun startTrip(deviceId: String): Long? {
     return withContext(Dispatchers.IO) {
         val url = java.net.URL("$API_BASE_URL/api/trips/start")
@@ -3764,6 +3802,11 @@ fun RiskZonesScreen(onNavigate: (Screen) -> Unit) {
     }
 }
 
+// 표시할 점이 없을 때 지도를 여는 기본 위치 (docs/06_API_MAPPING.md 예시 좌표)
+const val DEFAULT_MAP_LAT = 35.1796
+const val DEFAULT_MAP_LNG = 129.0756
+val DEFAULT_MAP_CENTER = DEFAULT_MAP_LAT to DEFAULT_MAP_LNG
+
 // osmdroid 실제 지도 (API 키 불필요, OpenStreetMap 타일 사용)
 data class GeoMarker(val id: String, val lat: Double, val lng: Double, val title: String, val color: Color)
 
@@ -3773,7 +3816,10 @@ fun OsmMapView(
     modifier: Modifier = Modifier,
     onMarkerClick: (String) -> Unit = {},
     polyline: List<Pair<Double, Double>> = emptyList(),
-    onMapTap: ((Double, Double) -> Unit)? = null
+    onMapTap: ((Double, Double) -> Unit)? = null,
+    // null: 마커·경로가 바뀔 때마다 전체가 보이도록 맞춘다. 값이 있으면 그 점들이 바뀔 때만 맞춘다(비어 있으면 defaultCenter)
+    fitPoints: List<Pair<Double, Double>>? = null,
+    defaultCenter: Pair<Double, Double> = DEFAULT_MAP_CENTER
 ) {
     val currentOnClick by rememberUpdatedState(onMarkerClick)
     val currentOnTap by rememberUpdatedState(onMapTap)
@@ -3789,6 +3835,8 @@ fun OsmMapView(
             org.osmdroid.views.MapView(ctx).apply {
                 setTileSource(org.osmdroid.tileprovider.tilesource.TileSourceFactory.MAPNIK)
                 setMultiTouchControls(true)
+                controller.setZoom(15.0)
+                controller.setCenter(org.osmdroid.util.GeoPoint(defaultCenter.first, defaultCenter.second))
                 // 스크롤 컨테이너 안에서도 지도 드래그가 가능하도록
                 setOnTouchListener { v, _ ->
                     v.parent?.requestDisallowInterceptTouchEvent(true)
@@ -3798,8 +3846,11 @@ fun OsmMapView(
         },
         update = { map ->
             val key = markers to polyline
-            if (map.tag == key) return@AndroidView
-            map.tag = key
+            val previous = map.tag as? Pair<*, *>
+            if (previous?.first == key && previous.second == fitPoints) return@AndroidView
+            // 오버레이가 같으면 다시 그리지 않고, 맞춤 대상이 바뀐 경우만 아래에서 시점을 이동한다
+            val refit = fitPoints == null || previous?.second != fitPoints
+            map.tag = key to fitPoints
             map.overlays.clear()
 
             // 지도 탭 좌표 전달 (마커 탭이 우선 처리되도록 맨 아래 레이어에 둔다)
@@ -3851,13 +3902,16 @@ fun OsmMapView(
                 )
             }
 
-            val fitPoints = points + linePoints
-            map.post {
-                if (fitPoints.size == 1) {
+            val target = fitPoints?.map { org.osmdroid.util.GeoPoint(it.first, it.second) } ?: (points + linePoints)
+            if (refit) map.post {
+                if (target.isEmpty()) {
+                    map.controller.setZoom(15.0)
+                    map.controller.setCenter(org.osmdroid.util.GeoPoint(defaultCenter.first, defaultCenter.second))
+                } else if (target.size == 1) {
                     map.controller.setZoom(16.0)
-                    map.controller.setCenter(fitPoints[0])
-                } else if (fitPoints.isNotEmpty()) {
-                    map.zoomToBoundingBox(org.osmdroid.util.BoundingBox.fromGeoPoints(fitPoints), false, 80)
+                    map.controller.setCenter(target[0])
+                } else {
+                    map.zoomToBoundingBox(org.osmdroid.util.BoundingBox.fromGeoPoints(target), false, 80)
                 }
             }
             map.invalidate()
@@ -3871,16 +3925,25 @@ fun OsmMapView(
 @Composable
 fun SafeRouteSection(riskZones: List<ServerRiskZone>) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var start by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var destination by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var picking by remember { mutableStateOf<String?>(null) } // "start" | "destination" | null
+    var locating by remember { mutableStateOf(false) }
+    // 현재 위치로 출발지를 정했을 때만 지도를 그 위치로 이동한다 (일반 탭 선택은 시점을 유지)
+    var focus by remember { mutableStateOf<Pair<Double, Double>?>(null) }
 
     fun useCurrentLocation() {
-        val loc = getCurrentLocation(context)
-        if (loc == null) {
-            Toast.makeText(context, "현재 위치를 가져올 수 없습니다. GPS를 켜고 다시 시도해 주세요.", Toast.LENGTH_SHORT).show()
-        } else {
-            start = loc
+        scope.launch {
+            locating = true
+            val loc = fetchCurrentLocation(context)
+            locating = false
+            if (loc == null) {
+                Toast.makeText(context, "현재 위치를 가져올 수 없습니다. GPS를 켜고 다시 시도하거나 지도에서 선택해 주세요.", Toast.LENGTH_LONG).show()
+            } else {
+                start = loc
+                focus = loc
+            }
         }
     }
 
@@ -3888,11 +3951,23 @@ fun SafeRouteSection(riskZones: List<ServerRiskZone>) {
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { result ->
         if (result.values.any { it }) useCurrentLocation()
-        else Toast.makeText(context, "위치 권한이 없어 현재 위치를 사용할 수 없습니다.", Toast.LENGTH_SHORT).show()
+        else Toast.makeText(
+            context,
+            "위치 권한이 없어 현재 위치를 사용할 수 없습니다. 설정에서 권한을 허용하거나 지도에서 선택해 주세요.",
+            Toast.LENGTH_LONG
+        ).show()
     }
 
     fun formatPoint(p: Pair<Double, Double>?) =
         p?.let { "%.5f, %.5f".format(java.util.Locale.US, it.first, it.second) } ?: "선택 안 됨"
+
+    fun assign(lat: Double, lng: Double) {
+        when (picking) {
+            "start" -> start = lat to lng
+            "destination" -> destination = lat to lng
+        }
+        picking = null
+    }
 
     val markers = buildList {
         riskZones.forEach { z ->
@@ -3912,12 +3987,20 @@ fun SafeRouteSection(riskZones: List<ServerRiskZone>) {
         destination?.let { add(GeoMarker("destination", it.first, it.second, "목적지", AppColors.Text)) }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    // 지도 시점: 현재 위치 선택 시 그 위치, 아니면 위험구간 전체, 없으면 기본 위치
+    val fitPoints = focus?.let { listOf(it) }
+        ?: riskZones.mapNotNull { z -> z.latitude?.let { lat -> z.longitude?.let { lng -> lat to lng } } }
+
+    // 화면이 작아도 모든 컨트롤에 접근할 수 있도록 전체를 스크롤한다
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text("출발지: ${formatPoint(start)}", fontSize = 13.sp, color = AppColors.Text)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("출발지: ${formatPoint(start)}", fontSize = 13.sp, color = AppColors.Text, modifier = Modifier.weight(1f))
+                if (start != null) TextButton(onClick = { start = null; focus = null }) { Text("지우기", fontSize = 12.sp) }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
                     onClick = {
@@ -3930,15 +4013,19 @@ fun SafeRouteSection(riskZones: List<ServerRiskZone>) {
                             arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
                         )
                     },
+                    enabled = !locating,
                     modifier = Modifier.weight(1f)
-                ) { Text("현재 위치", fontSize = 12.sp, color = AppColors.Text) }
+                ) { Text(if (locating) "위치 확인 중..." else "현재 위치", fontSize = 12.sp, color = AppColors.Text) }
                 OutlinedButton(
                     onClick = { picking = "start" },
                     modifier = Modifier.weight(1f)
                 ) { Text("지도에서 선택", fontSize = 12.sp, color = AppColors.Text) }
             }
 
-            Text("목적지: ${formatPoint(destination)}", fontSize = 13.sp, color = AppColors.Text)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("목적지: ${formatPoint(destination)}", fontSize = 13.sp, color = AppColors.Text, modifier = Modifier.weight(1f))
+                if (destination != null) TextButton(onClick = { destination = null }) { Text("지우기", fontSize = 12.sp) }
+            }
             OutlinedButton(
                 onClick = { picking = "destination" },
                 modifier = Modifier.fillMaxWidth()
@@ -3959,27 +4046,14 @@ fun SafeRouteSection(riskZones: List<ServerRiskZone>) {
             ) { Text("안전 경로 요청 (백엔드 준비 중)") }
         }
 
-        Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-            OsmMapView(
-                markers = markers,
-                modifier = Modifier.fillMaxSize(),
-                onMapTap = { lat, lng ->
-                    when (picking) {
-                        "start" -> start = lat to lng
-                        "destination" -> destination = lat to lng
-                    }
-                    picking = null
-                }
-            )
-            if (markers.isEmpty()) {
-                Text(
-                    "현재 위치 또는 지도를 눌러 출발지를 선택하세요.",
-                    fontSize = 12.sp, color = AppColors.TextSub,
-                    modifier = Modifier.align(Alignment.TopCenter).padding(8.dp)
-                        .background(AppColors.Card.copy(alpha = 0.9f), RoundedCornerShape(8.dp)).padding(8.dp)
-                )
-            }
-        }
+        OsmMapView(
+            markers = markers,
+            modifier = Modifier.fillMaxWidth().height(320.dp),
+            // 선택 모드에서 위험구간 마커를 눌러도 그 위치를 선택할 수 있다
+            onMarkerClick = { id -> markers.find { it.id == id }?.let { m -> if (picking != null) assign(m.lat, m.lng) } },
+            onMapTap = { lat, lng -> assign(lat, lng) },
+            fitPoints = fitPoints
+        )
 
         Text(
             "추천 경로는 참고 정보이며 안전을 보장하지 않습니다.",

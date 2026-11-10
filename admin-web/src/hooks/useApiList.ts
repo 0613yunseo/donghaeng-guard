@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { errorText, withTimeout } from "../lib/fetchTimeout";
 
 interface ApiEnvelope<T> {
   success: boolean;
@@ -20,7 +21,7 @@ export function useApiList<T>(url: string, errorLabel: string) {
       setLoading(true);
       setError(null);
       try {
-        const response = await fetch(url, { signal: controller.signal });
+        const response = await fetch(url, { signal: withTimeout(controller.signal) });
         if (!response.ok) throw new Error(`${errorLabel} 조회 실패 (HTTP ${response.status})`);
 
         const result: ApiEnvelope<T> = await response.json();
@@ -30,7 +31,7 @@ export function useApiList<T>(url: string, errorLabel: string) {
         if (!controller.signal.aborted) setItems(result.data);
       } catch (cause) {
         if (!controller.signal.aborted) {
-          setError(cause instanceof Error ? cause.message : `${errorLabel}을(를) 불러오지 못했습니다.`);
+          setError(errorText(cause, `${errorLabel}을(를) 불러오지 못했습니다.`));
         }
       } finally {
         if (!controller.signal.aborted) setLoading(false);

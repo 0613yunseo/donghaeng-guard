@@ -2,14 +2,13 @@ import { useState } from "react";
 import { Bell, Search, Sun, Moon, LogOut, CalendarDays } from "lucide-react";
 import { useApp } from "../../contexts/AppContext";
 import { C } from "../../constants/colors";
-import { NOTIFICATIONS } from "../../mocks/adminMockData";
-import type { Page } from "../../types/admin";
+import type { Notification as AppNotification, Page } from "../../types/admin";
 
 export function Header() {
   const { t, dark, toggleDark, onNav, sidebarWidth, searchQuery, setSearchQuery } = useApp();
   const [dropOpen,  setDropOpen] = useState(false);
   const [bellOpen,  setBellOpen] = useState(false);
-  const [notifs,    setNotifs]   = useState(NOTIFICATIONS);
+  const [notifs,    setNotifs]   = useState<AppNotification[]>([]); // 알림 API가 아직 없어 비어 있음
   const unread = notifs.filter(n => !n.read).length;
 
   const markAllRead = () => setNotifs(n => n.map(x => ({ ...x, read: true })));
@@ -90,6 +89,9 @@ export function Header() {
                 <button onClick={markAllRead} className="text-[11px] hover:opacity-70" style={{ color: C.blue }}>모두 읽음</button>
               </div>
               <div>
+                {notifs.length === 0 && (
+                  <p className="px-4 py-6 text-center text-[12px]" style={{ color: t.muted }}>새 알림이 없습니다.</p>
+                )}
                 {notifs.map(n => (
                   <div
                     key={n.id}

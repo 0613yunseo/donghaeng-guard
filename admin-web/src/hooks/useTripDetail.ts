@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { errorText, withTimeout } from "../lib/fetchTimeout";
 import type { RiskEvent, Trip } from "../types/admin";
 import type { TripApiResponse, TripDetailResponse } from "../types/tripApi";
 
@@ -52,7 +53,7 @@ export function useTripDetail(tripId: string | null) {
 
       try {
         const response = await fetch(`/api/trips/${tripId}`, {
-          signal: controller.signal,
+          signal: withTimeout(controller.signal),
         });
 
         if (!response.ok) {
@@ -71,11 +72,7 @@ export function useTripDetail(tripId: string | null) {
         }
       } catch (cause) {
         if (!controller.signal.aborted && seq === requestSeqRef.current) {
-          setError(
-            cause instanceof Error
-              ? cause.message
-              : "주행 정보를 불러오지 못했습니다."
-          );
+          setError(errorText(cause, "주행 정보를 불러오지 못했습니다."));
         }
       } finally {
         if (!controller.signal.aborted && seq === requestSeqRef.current) {

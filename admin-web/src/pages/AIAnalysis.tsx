@@ -5,6 +5,7 @@ import { C } from '../constants/colors';
 import { Card, CardHead } from '../components/ui';
 import { RiskBadge } from '../components/badges/RiskBadge';
 import { useTripList } from '../hooks/useTripList';
+import { errorText, withTimeout } from '../lib/fetchTimeout';
 
 type Risk = 'SAFE' | 'WARNING' | 'DANGER';
 type AiRow = {
@@ -73,7 +74,7 @@ export function AIAnalysis() {
     async function run() {
       setLoading(true); setError(null); setRecords([]);
       try {
-        const response = await fetch(target, { signal: controller.signal, cache: 'no-store' });
+        const response = await fetch(target, { signal: withTimeout(controller.signal), cache: 'no-store' });
         if (!response.ok) throw new Error(`HTTP ${response.status} — 백엔드 주소/프록시를 확인해 주세요.`);
         const body: unknown = await response.json();
         if (!Array.isArray(body)) throw new Error('API 응답이 배열 형식이 아닙니다.');
@@ -81,7 +82,7 @@ export function AIAnalysis() {
         if (valid.length !== body.length) throw new Error('일부 AI 응답에 필수 필드가 없습니다.');
         if (!controller.signal.aborted) setRecords(valid);
       } catch (err) {
-        if (!controller.signal.aborted) { setError(err instanceof Error ? err.message : 'AI 데이터 조회 실패'); setRecords([]); }
+        if (!controller.signal.aborted) { setError(errorText(err, 'AI 데이터 조회 실패')); setRecords([]); }
       } finally { if (!controller.signal.aborted) setLoading(false); }
     }
     void run(); return () => controller.abort();
