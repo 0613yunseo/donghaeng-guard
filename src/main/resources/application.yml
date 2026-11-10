@@ -23,3 +23,7 @@ server:
 ai:
   server:
     url: http://172.18.42.234:8000
+
+kakao:
+  api:
+    key: 96ef1a25402db7866403b419250bf745
