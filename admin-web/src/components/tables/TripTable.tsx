@@ -5,9 +5,10 @@ import type { Trip } from "../../types/admin";
 
 interface Props {
   trips: Trip[];
+  onRowClick: (tripId: string) => void;
 }
 
-export function TripTable({ trips }: Props) {
+export function TripTable({ trips, onRowClick }: Props) {
   const { t } = useApp();
 
   if (trips.length === 0) {
@@ -23,14 +24,16 @@ export function TripTable({ trips }: Props) {
       <table className="w-full text-xs">
         <thead>
           <tr style={{ borderBottom: `1px solid ${t.border}`, background: t.bgSub }}>
-            {["주행 ID","사용자 ID","디바이스 ID","상태","시작 시각","종료 시각","이벤트 수","최고 위험단계"].map(h => (
+            {["주행 ID", "사용자 ID", "디바이스 ID", "상태", "시작 시각", "종료 시각", "이벤트 수", "최고 위험단계"].map(h => (
               <th key={h} className="px-4 py-3 text-left font-medium whitespace-nowrap" style={{ color: t.muted }}>{h}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           {trips.map(trip => (
-            <tr key={trip.id}
+            <tr
+              key={trip.id}
+              onClick={() => onRowClick(trip.id)}
               className="cursor-pointer transition-colors"
               style={{ borderBottom: `1px solid ${t.border}` }}
               onMouseEnter={e => (e.currentTarget.style.background = t.bgSub)}

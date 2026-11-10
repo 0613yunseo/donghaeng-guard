@@ -90,21 +90,30 @@ export function useTripDetail() {
 
       // 현재 trip detail 응답에는 userId가 없으므로 임시 표시
       user: DEFAULT_USER_ID,
+
+      sensorId: event.sensorId ?? null,
+      pitch: event.pitch ?? null,
+      slopeStatus: event.slopeStatus ?? null,
+
+      detectedObject: event.detectedObject ?? null,
+      confidence: event.confidence ?? null,
+      stdDev: event.stdDev ?? null,
+      imageUrl: event.imageUrl ?? null,
     })) ?? [];
 
   const trips: Trip[] = data
     ? [
-        {
-          id: String(data.tripId),
-          user: DEFAULT_USER_ID,
-          dev: tripDevice,
-          st: data.status,
-          start: data.startedAt.replace("T", " "),
-          end: data.endedAt?.replace("T", " ") ?? "—",
-          cnt: data.eventCount,
-          rl: data.highestRiskLevel,
-        },
-      ]
+      {
+        id: String(data.tripId),
+        user: DEFAULT_USER_ID,
+        dev: tripDevice,
+        st: data.status,
+        start: data.startedAt.replace("T", " "),
+        end: data.endedAt?.replace("T", " ") ?? "—",
+        cnt: data.eventCount,
+        rl: data.highestRiskLevel,
+      },
+    ]
     : [];
 
   return { data, trips, events, loading, error };

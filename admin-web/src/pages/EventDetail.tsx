@@ -5,12 +5,14 @@ import { C } from "../constants/colors";
 import { Card, CardHead, PrimaryBtn, OutlineBtn } from "../components/ui";
 import { RiskBadge } from "../components/badges/RiskBadge";
 import { useTripDetail } from "../hooks/useTripDetail";
+import { MOCK_AI_PREDICTION } from "../mocks/aiPredictionMock";
 
 export function EventDetail() {
   const { t, selId, onNav } = useApp();
   const { events, loading, error } = useTripDetail();
   const [zoom, setZoom] = useState(1);
   const e = events.find(x => x.id === selId);
+  const mockAiResult = MOCK_AI_PREDICTION;
 
   if (loading || error || !e) {
     return <Card>
@@ -22,19 +24,20 @@ export function EventDetail() {
     </Card>;
   }
   const isDanger = e.rl === "DANGER";
+  const isCamera = e.sensor === "CAMERA";
 
   const fields: Array<{ l: string; v: React.ReactNode }> = [
-    { l: "이벤트 ID",  v: e.id      },
-    { l: "주행 ID",    v: e.trip    },
-    { l: "사용자 ID",  v: e.user    },
-    { l: "디바이스 ID",v: e.dev     },
-    { l: "센서 종류",  v: e.sensor  },
-    { l: "위험 유형",  v: e.rt      },
-    { l: "위험 단계",  v: <RiskBadge level={e.rl} /> },
-    { l: "감지 거리",  v: e.mm == null ? "—" : `${e.mm} mm` },
-    { l: "위도",        v: (e.lat?.toFixed(6) ?? "—") },
-    { l: "경도",        v: (e.lng?.toFixed(6) ?? "—") },
-    { l: "감지 시각",  v: e.at      },
+    { l: "이벤트 ID", v: e.id },
+    { l: "주행 ID", v: e.trip },
+    { l: "사용자 ID", v: e.user },
+    { l: "디바이스 ID", v: e.dev },
+    { l: "센서 종류", v: e.sensor },
+    { l: "위험 유형", v: e.rt },
+    { l: "위험 단계", v: <RiskBadge level={e.rl} /> },
+    { l: "감지 거리", v: e.mm == null ? "—" : `${e.mm} mm` },
+    { l: "위도", v: (e.lat?.toFixed(6) ?? "—") },
+    { l: "경도", v: (e.lng?.toFixed(6) ?? "—") },
+    { l: "감지 시각", v: e.at },
   ];
 
   return (
@@ -84,10 +87,10 @@ export function EventDetail() {
             <div className="relative rounded-xl overflow-hidden"
               style={{ height: 290, background: "linear-gradient(150deg,#0d1e38,#071424)" }}>
               <svg className="absolute inset-0 w-full h-full" style={{ opacity: 0.11 }} viewBox="0 0 440 290">
-                {[36,72,108,144,180,216,252].map(y =>
+                {[36, 72, 108, 144, 180, 216, 252].map(y =>
                   <line key={y} x1="0" y1={y} x2="440" y2={y} stroke="#3A7BD5" strokeWidth="1" />
                 )}
-                {[55,110,165,220,275,330,385].map(x =>
+                {[55, 110, 165, 220, 275, 330, 385].map(x =>
                   <line key={x} x1={x} y1="0" x2={x} y2="290" stroke="#3A7BD5" strokeWidth="1" />
                 )}
                 <path d="M20 180 Q90 120 160 150 Q230 180 300 110 Q360 50 430 80" stroke="#3A7BD5" strokeWidth="3" fill="none" />
@@ -126,6 +129,143 @@ export function EventDetail() {
           </div>
         </Card>
       </div>
+      {/* AI analysis result - Mock data */}
+      <Card>
+        <CardHead
+          title="AI 분석 결과"
+          sub="AI 연동 테스트용 예시 데이터"
+        />
+
+        <div className="p-5 space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <p
+                className="text-xs mb-1"
+                style={{ color: t.muted }}
+              >
+                AI 위험 등급
+              </p>
+              <p
+                className="text-lg font-bold"
+                style={{ color: C.warn }}
+              >
+                {mockAiResult.riskGrade}
+              </p>
+            </div>
+
+            <div>
+              <p
+                className="text-xs mb-1"
+                style={{ color: t.muted }}
+              >
+                AI 위험 점수
+              </p>
+              <p
+                className="text-lg font-bold"
+                style={{ color: t.text }}
+              >
+                {mockAiResult.riskScore}점
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <p
+              className="text-xs font-semibold mb-1"
+              style={{ color: t.muted }}
+            >
+              판정 사유
+            </p>
+            <p
+              className="text-sm"
+              style={{ color: t.text }}
+            >
+              {mockAiResult.reason}
+            </p>
+          </div>
+
+          <div>
+            <p
+              className="text-xs font-semibold mb-1"
+              style={{ color: t.muted }}
+            >
+              권장 조치
+            </p>
+            <p
+              className="text-sm"
+              style={{ color: t.text }}
+            >
+              {mockAiResult.recommendedAction}
+            </p>
+          </div>
+        </div>
+      </Card>
+
+      {/* Camera event details */}
+      {isCamera && (
+        <Card>
+          <CardHead
+            title="카메라 감지 상세"
+            sub="실제 센서 이벤트의 객체 인식 결과 및 이미지"
+          />
+
+          <div className="p-5 space-y-4">
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <p className="text-xs mb-1" style={{ color: t.muted }}>
+                  감지 객체
+                </p>
+                <p className="text-sm font-semibold" style={{ color: t.text }}>
+                  {e.detectedObject ?? "—"}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs mb-1" style={{ color: t.muted }}>
+                  탐지 신뢰도
+                </p>
+                <p className="text-sm font-semibold" style={{ color: t.text }}>
+                  {e.confidence != null
+                    ? `${(e.confidence * 100).toFixed(1)}%`
+                    : "—"}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs mb-1" style={{ color: t.muted }}>
+                  표준편차
+                </p>
+                <p className="text-sm font-semibold" style={{ color: t.text }}>
+                  {e.stdDev ?? "—"}
+                </p>
+              </div>
+            </div>
+
+            {e.imageUrl ? (
+              <div>
+                <p className="text-xs font-semibold mb-2" style={{ color: t.muted }}>
+                  감지 이미지
+                </p>
+
+                <img
+                  src={
+                    e.imageUrl.startsWith("http")
+                      ? e.imageUrl
+                      : `http://localhost:8081${e.imageUrl.startsWith("/") ? "" : "/"}${e.imageUrl}`
+                  }
+                  alt={`${e.detectedObject ?? "객체"} 감지 이미지`}
+                  className="w-full max-h-96 object-contain rounded-xl"
+                  style={{ background: t.bgSub }}
+                />
+              </div>
+            ) : (
+              <p className="text-xs" style={{ color: t.muted }}>
+                해당 이벤트에 연결된 이미지가 없습니다.
+              </p>
+            )}
+          </div>
+        </Card>
+      )}
 
       {/* Action buttons */}
       <div className="flex items-center gap-3">
