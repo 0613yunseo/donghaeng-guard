@@ -26,4 +26,4 @@ ai:
 
 kakao:
   api:
-    key: 96ef1a25402db7866403b419250bf745
+    key: ${KAKAO_API_KEY:}
