@@ -30,8 +30,15 @@ public class RouteService {
         this.riskZoneRepository = riskZoneRepository;
     }
 
+    public static class KakaoApiException extends RuntimeException {
+        public KakaoApiException(String message) { super(message); }
+    }
+
+    public static class RouteNotFoundException extends RuntimeException {
+        public RouteNotFoundException(String message) { super(message); }
+    }
+
     public RouteResponse getRecommendedRoute(RouteRequest req) {
-        // 1. 카카오 길찾기 API 호출
         KakaoRouteResult kakaoResult = fetchKakaoRoute(req);
 
         List<RouteResponse.RoutePoint> path = kakaoResult.path;
@@ -39,14 +46,12 @@ public class RouteService {
         int totalDuration = kakaoResult.duration;
 
         if (path.isEmpty()) {
-            path = createStraightPath(req);
-            totalDistance = (int) calculateDistance(
-                    req.getStartLat(), req.getStartLng(),
-                    req.getEndLat(), req.getEndLng());
-            totalDuration = totalDistance;
+            if (kakaoResult.apiError) {
+                throw new KakaoApiException(kakaoResult.errorMessage);
+            }
+            throw new RouteNotFoundException("경로를 찾을 수 없습니다.");
         }
 
-        // 2. 경로 바운딩 박스 내 risk_zones 조회
         double minLat = Double.MAX_VALUE, maxLat = -Double.MAX_VALUE;
         double minLng = Double.MAX_VALUE, maxLng = -Double.MAX_VALUE;
         for (RouteResponse.RoutePoint p : path) {
@@ -61,7 +66,6 @@ public class RouteService {
                 minLng - BBOX_MARGIN, maxLng + BBOX_MARGIN
         );
 
-        // 3. 경로에서 50m 이내 위험 구간 필터링
         List<RouteResponse.RiskZoneInfo> riskZonesOnRoute = new ArrayList<>();
         for (RiskZone zone : nearbyZones) {
             double minDist = Double.MAX_VALUE;
@@ -85,7 +89,6 @@ public class RouteService {
             }
         }
 
-        // 4. 안전 점수 계산
         double safetyScore = calculateSafetyScore(riskZonesOnRoute);
 
         return RouteResponse.builder()
@@ -93,16 +96,18 @@ public class RouteService {
                 .totalDuration(totalDuration)
                 .riskZoneCount(riskZonesOnRoute.size())
                 .safetyScore(safetyScore)
+                .fallback(false)
                 .path(path)
                 .riskZones(riskZonesOnRoute)
                 .build();
     }
 
-    /** 카카오 API 응답을 담는 내부 클래스 */
     private static class KakaoRouteResult {
         List<RouteResponse.RoutePoint> path = new ArrayList<>();
         int distance = 0;
         int duration = 0;
+        boolean apiError = false;
+        String errorMessage = "";
     }
 
     @SuppressWarnings("unchecked")
@@ -129,32 +134,37 @@ public class RouteService {
                 Map<String, Object> body = response.getBody();
                 List<Map<String, Object>> routes = (List<Map<String, Object>>) body.get("routes");
 
-                if (routes != null && !routes.isEmpty()) {
-                    Map<String, Object> route = routes.get(0);
+                if (routes == null || routes.isEmpty()) {
+                    return result;
+                }
 
-                    // 거리/시간 파싱
-                    Map<String, Object> summary = (Map<String, Object>) route.get("summary");
-                    if (summary != null) {
-                        Number dist = (Number) summary.get("distance");
-                        Number dur = (Number) summary.get("duration");
-                        if (dist != null) result.distance = dist.intValue();
-                        if (dur != null) result.duration = dur.intValue();
-                    }
+                Map<String, Object> route = routes.get(0);
 
-                    // 경로 좌표 파싱
-                    List<Map<String, Object>> sections = (List<Map<String, Object>>) route.get("sections");
-                    if (sections != null) {
-                        for (Map<String, Object> section : sections) {
-                            List<Map<String, Object>> roads = (List<Map<String, Object>>) section.get("roads");
-                            if (roads != null) {
-                                for (Map<String, Object> road : roads) {
-                                    List<Number> vertexes = (List<Number>) road.get("vertexes");
-                                    if (vertexes != null) {
-                                        for (int i = 0; i < vertexes.size() - 1; i += 2) {
-                                            double lng = vertexes.get(i).doubleValue();
-                                            double lat = vertexes.get(i + 1).doubleValue();
-                                            result.path.add(new RouteResponse.RoutePoint(lat, lng));
-                                        }
+                Number resultCode = (Number) route.get("result_code");
+                if (resultCode != null && resultCode.intValue() != 0) {
+                    return result;
+                }
+
+                Map<String, Object> summary = (Map<String, Object>) route.get("summary");
+                if (summary != null) {
+                    Number dist = (Number) summary.get("distance");
+                    Number dur = (Number) summary.get("duration");
+                    if (dist != null) result.distance = dist.intValue();
+                    if (dur != null) result.duration = dur.intValue();
+                }
+
+                List<Map<String, Object>> sections = (List<Map<String, Object>>) route.get("sections");
+                if (sections != null) {
+                    for (Map<String, Object> section : sections) {
+                        List<Map<String, Object>> roads = (List<Map<String, Object>>) section.get("roads");
+                        if (roads != null) {
+                            for (Map<String, Object> road : roads) {
+                                List<Number> vertexes = (List<Number>) road.get("vertexes");
+                                if (vertexes != null) {
+                                    for (int i = 0; i < vertexes.size() - 1; i += 2) {
+                                        double lng = vertexes.get(i).doubleValue();
+                                        double lat = vertexes.get(i + 1).doubleValue();
+                                        result.path.add(new RouteResponse.RoutePoint(lat, lng));
                                     }
                                 }
                             }
@@ -164,21 +174,11 @@ public class RouteService {
             }
         } catch (Exception e) {
             log.error("[경로] 카카오 API 호출 실패: {}", e.getMessage());
+            result.apiError = true;
+            result.errorMessage = e.getMessage();
         }
 
         return result;
-    }
-
-    private List<RouteResponse.RoutePoint> createStraightPath(RouteRequest req) {
-        List<RouteResponse.RoutePoint> path = new ArrayList<>();
-        int steps = 10;
-        for (int i = 0; i <= steps; i++) {
-            double ratio = (double) i / steps;
-            double lat = req.getStartLat() + (req.getEndLat() - req.getStartLat()) * ratio;
-            double lng = req.getStartLng() + (req.getEndLng() - req.getStartLng()) * ratio;
-            path.add(new RouteResponse.RoutePoint(lat, lng));
-        }
-        return path;
     }
 
     private double calculateSafetyScore(List<RouteResponse.RiskZoneInfo> riskZones) {
