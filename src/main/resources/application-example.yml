@@ -1,8 +1,12 @@
 spring:
+  servlet:
+    multipart:
+      max-file-size: 500MB
+      max-request-size: 500MB
   datasource:
-    url: jdbc:mysql://localhost:3307/donghaeguard?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://localhost:3307/donghaeguard?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
     username: root
-    password: 여기에_비밀번호_입력
+    password: ${DB_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   jpa:
@@ -15,3 +19,11 @@ spring:
 
 server:
   port: 8081
+
+ai:
+  server:
+    url: ${AI_SERVER_URL:http://localhost:8000}
+
+kakao:
+  api:
+    key: ${KAKAO_API_KEY:}
