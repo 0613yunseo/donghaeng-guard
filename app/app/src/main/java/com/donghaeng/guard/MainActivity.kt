@@ -653,6 +653,137 @@ suspend fun fetchCurrentLocation(context: Context): Pair<Double, Double>? {
     }
 }
 
+// ── 경로 위험도 안내 API (POST /api/routes/recommend) ─────────────────
+// 성공 응답은 ApiResponse 래퍼 없이 RouteResponse 객체를 그대로 반환한다.
+data class RouteRiskZone(
+    val zoneId: Long,
+    val latitude: Double?,
+    val longitude: Double?,
+    val riskScore: Int?,
+    val riskGrade: String?,
+    val reason: String?,
+    val distanceFromRoute: Double?
+)
+
+data class SafeRoute(
+    val totalDistance: Int?,          // m
+    val totalDuration: Int?,          // 초
+    val safetyScore: Double?,         // 0~100, 높을수록 안전
+    val riskZoneCount: Int?,
+    val fallback: Boolean,            // true면 실제 경로가 아닌 대체 경로 (표시하지 않는다)
+    val path: List<Pair<Double, Double>>,
+    val riskZones: List<RouteRiskZone>
+)
+
+enum class RouteErrorKind { NETWORK, SERVER, NO_ROUTE, INVALID_INPUT, BAD_RESPONSE }
+
+sealed class RouteOutcome {
+    data class Success(val route: SafeRoute) : RouteOutcome()
+    data class Failure(val kind: RouteErrorKind, val message: String) : RouteOutcome()
+}
+
+suspend fun fetchSafeRoute(start: Pair<Double, Double>, end: Pair<Double, Double>): RouteOutcome {
+    return withContext(Dispatchers.IO) {
+        val connection = try {
+            java.net.URL("$API_BASE_URL/api/routes/recommend").openConnection() as java.net.HttpURLConnection
+        } catch (e: Exception) {
+            return@withContext RouteOutcome.Failure(RouteErrorKind.NETWORK, "서버 주소가 올바르지 않습니다.")
+        }
+
+        try {
+            connection.requestMethod = "POST"
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.setRequestProperty("Accept", "application/json")
+            connection.connectTimeout = 5000
+            connection.readTimeout = 20000
+            connection.doOutput = true
+
+            val body = JSONObject()
+                .put("startLat", start.first)
+                .put("startLng", start.second)
+                .put("endLat", end.first)
+                .put("endLng", end.second)
+                .toString()
+            connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+
+            val code = connection.responseCode
+            val text = (if (code in 200..299) connection.inputStream else connection.errorStream)
+                ?.bufferedReader()?.use { it.readText() }.orEmpty()
+
+            if (code !in 200..299) {
+                // 오류 본문: { "error": "...", "message": "..." }
+                val serverMessage = try {
+                    JSONObject(text).optString("message").takeIf { it.isNotBlank() }
+                } catch (e: Exception) {
+                    null
+                }
+                return@withContext when (code) {
+                    400 -> RouteOutcome.Failure(RouteErrorKind.INVALID_INPUT, serverMessage ?: "입력한 위치가 올바르지 않습니다.")
+                    404 -> RouteOutcome.Failure(RouteErrorKind.NO_ROUTE, serverMessage ?: "경로를 찾지 못했습니다.")
+                    502 -> RouteOutcome.Failure(
+                        RouteErrorKind.SERVER,
+                        "경로 조회 서비스에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요." + (serverMessage?.let { "\n($it)" } ?: "")
+                    )
+                    else -> RouteOutcome.Failure(
+                        RouteErrorKind.SERVER,
+                        "서버 오류 (HTTP $code)" + (serverMessage?.let { ": $it" } ?: "")
+                    )
+                }
+            }
+
+            val root = JSONObject(text)
+            val pathJson = root.optJSONArray("path")
+                ?: return@withContext RouteOutcome.Failure(RouteErrorKind.BAD_RESPONSE, "응답에 경로 좌표(path)가 없습니다.")
+
+            val path = List(pathJson.length()) { i ->
+                val pt = pathJson.getJSONObject(i)
+                pt.getDouble("latitude") to pt.getDouble("longitude")
+            }
+
+            val zonesJson = root.optJSONArray("riskZones")
+            val zones = List(zonesJson?.length() ?: 0) { i ->
+                val z = zonesJson!!.getJSONObject(i)
+                RouteRiskZone(
+                    zoneId = z.getLong("zoneId"),
+                    latitude = if (z.isNull("latitude")) null else z.getDouble("latitude"),
+                    longitude = if (z.isNull("longitude")) null else z.getDouble("longitude"),
+                    riskScore = if (z.isNull("riskScore")) null else z.getInt("riskScore"),
+                    riskGrade = if (z.isNull("riskGrade")) null else z.getString("riskGrade"),
+                    reason = if (z.isNull("reason")) null else z.getString("reason"),
+                    distanceFromRoute = if (z.isNull("distanceFromRoute")) null else z.getDouble("distanceFromRoute")
+                )
+            }
+
+            val route = SafeRoute(
+                totalDistance = if (root.isNull("totalDistance")) null else root.optInt("totalDistance"),
+                totalDuration = if (root.isNull("totalDuration")) null else root.optInt("totalDuration"),
+                safetyScore = if (root.isNull("safetyScore")) null else root.optDouble("safetyScore"),
+                riskZoneCount = if (root.isNull("riskZoneCount")) null else root.optInt("riskZoneCount"),
+                fallback = root.optBoolean("fallback", false),
+                path = path,
+                riskZones = zones
+            )
+
+            when {
+                path.size < 2 ->
+                    RouteOutcome.Failure(RouteErrorKind.NO_ROUTE, "경로를 찾지 못했습니다. 다른 출발지나 목적지를 선택해 주세요.")
+                route.fallback ->
+                    RouteOutcome.Failure(
+                        RouteErrorKind.NO_ROUTE,
+                        "실제 경로가 아닌 대체 경로가 반환되어 표시하지 않습니다."
+                    )
+                else -> RouteOutcome.Success(route)
+            }
+        } catch (e: org.json.JSONException) {
+            RouteOutcome.Failure(RouteErrorKind.BAD_RESPONSE, "서버 응답을 해석할 수 없습니다.")
+        } catch (e: java.io.IOException) {
+            RouteOutcome.Failure(RouteErrorKind.NETWORK, "서버에 연결할 수 없습니다. 인터넷 연결과 서버 상태를 확인해 주세요.")
+        } finally {
+            connection.disconnect()
+        }
+    }
+}
+
 suspend fun startTrip(deviceId: String): Long? {
     return withContext(Dispatchers.IO) {
         val url = java.net.URL("$API_BASE_URL/api/trips/start")
@@ -3509,8 +3640,9 @@ fun RiskZonesScreen(onNavigate: (Screen) -> Unit) {
     var selectedZoneId by remember { mutableStateOf<Long?>(null) }
     var showZoneMap by remember { mutableStateOf(false) }
     var routeMode by remember { mutableStateOf(false) }
+    var reloadKey by remember { mutableStateOf(0) }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(reloadKey) {
         loading = true
         errorMessage = null
 
@@ -3547,7 +3679,7 @@ fun RiskZonesScreen(onNavigate: (Screen) -> Unit) {
                 Spacer(Modifier.height(6.dp))
 
                 Text(
-                    text = if (routeMode) "출발지와 목적지를 선택해 안전 경로를 요청합니다."
+                    text = if (routeMode) "출발지와 목적지를 선택하면 경로 주변의 위험구간 정보를 안내합니다."
                            else "주행 데이터를 기반으로 확인된 위험 구간입니다.",
                     fontSize = 12.sp,
                     color = AppColors.TextSub
@@ -3556,7 +3688,7 @@ fun RiskZonesScreen(onNavigate: (Screen) -> Unit) {
                 Spacer(Modifier.height(10.dp))
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(false to "위험구간 보기", true to "안전 경로 추천").forEach { (mode, label) ->
+                    listOf(false to "위험구간 보기", true to "경로 위험도 안내").forEach { (mode, label) ->
                         if (routeMode == mode) {
                             Button(onClick = {}, modifier = Modifier.weight(1f)) { Text(label, fontSize = 13.sp) }
                         } else {
@@ -3605,12 +3737,16 @@ fun RiskZonesScreen(onNavigate: (Screen) -> Unit) {
                         .padding(24.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = "위험 구간 정보를 불러오지 못했어요.\n${errorMessage}",
-                        fontSize = 13.sp,
-                        color = AppColors.TextSub,
-                        textAlign = TextAlign.Center
-                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "위험 구간 정보를 불러오지 못했어요.\n${errorMessage}",
+                            fontSize = 13.sp,
+                            color = AppColors.TextSub,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        OutlinedButton(onClick = { reloadKey++ }) { Text("다시 시도") }
+                    }
                 }
             }
 
@@ -3701,7 +3837,7 @@ fun RiskZonesScreen(onNavigate: (Screen) -> Unit) {
                         ) {
                             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text("위험 구간 #${selectedZone.zoneId}", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text)
-                                Text("위험 등급: ${selectedZone.riskGrade ?: "정보 없음"} · 점수: ${selectedZone.riskScore?.toString() ?: "정보 없음"}", fontSize = 12.sp, color = AppColors.TextSub)
+                                Text("위험 등급: ${selectedZone.riskGrade?.let { riskGradeLabel(it) } ?: "정보 없음"} · 점수: ${selectedZone.riskScore?.toString() ?: "정보 없음"}", fontSize = 12.sp, color = AppColors.TextSub)
                                 Text("위험 발생: ${selectedZone.zoneEventCount?.toString() ?: "정보 없음"}회", fontSize = 12.sp, color = AppColors.TextSub)
                                 Text(
                                     selectedZone.reason?.takeIf { it.isNotBlank() } ?: "상세 분석 정보가 없습니다.",
@@ -3747,7 +3883,7 @@ fun RiskZonesScreen(onNavigate: (Screen) -> Unit) {
                                 )
 
                                 Text(
-                                    text = "위험 등급: ${zone.riskGrade ?: "정보 없음"}",
+                                    text = "위험 등급: ${zone.riskGrade?.let { riskGradeLabel(it) } ?: "정보 없음"}",
                                     fontSize = 13.sp,
                                     color = AppColors.Text
                                 )
@@ -3921,7 +4057,7 @@ fun OsmMapView(
 }
 
 
-// 안전 경로 추천 UI. 백엔드 경로 API(POST /api/routes/recommend 예정)가 확정되기 전이라 요청은 보내지 않는다.
+// 경로 위험도 안내: 출발지·목적지를 정하면 POST /api/routes/recommend로 경로와 주변 위험구간 정보를 받아 표시한다.
 @Composable
 fun SafeRouteSection(riskZones: List<ServerRiskZone>) {
     val context = LocalContext.current
@@ -3933,6 +4069,37 @@ fun SafeRouteSection(riskZones: List<ServerRiskZone>) {
     // 현재 위치로 출발지를 정했을 때만 지도를 그 위치로 이동한다 (일반 탭 선택은 시점을 유지)
     var focus by remember { mutableStateOf<Pair<Double, Double>?>(null) }
 
+    var routing by remember { mutableStateOf(false) }
+    var route by remember { mutableStateOf<SafeRoute?>(null) }
+    var routeError by remember { mutableStateOf<RouteOutcome.Failure?>(null) }
+    var requestSeq by remember { mutableStateOf(0) } // 출발지·목적지가 바뀌면 늦게 도착한 이전 응답을 버리기 위한 번호
+
+    fun resetRoute() {
+        requestSeq++
+        routing = false
+        route = null
+        routeError = null
+    }
+
+    fun requestRoute() {
+        val s = start ?: return
+        val d = destination ?: return
+        if (routing) return
+        val seq = ++requestSeq
+        routing = true
+        route = null
+        routeError = null
+        scope.launch {
+            val outcome = fetchSafeRoute(s, d)
+            if (seq != requestSeq) return@launch
+            routing = false
+            when (outcome) {
+                is RouteOutcome.Success -> route = outcome.route
+                is RouteOutcome.Failure -> routeError = outcome
+            }
+        }
+    }
+
     fun useCurrentLocation() {
         scope.launch {
             locating = true
@@ -3943,6 +4110,7 @@ fun SafeRouteSection(riskZones: List<ServerRiskZone>) {
             } else {
                 start = loc
                 focus = loc
+                resetRoute()
             }
         }
     }
@@ -3967,8 +4135,10 @@ fun SafeRouteSection(riskZones: List<ServerRiskZone>) {
             "destination" -> destination = lat to lng
         }
         picking = null
+        resetRoute()
     }
 
+    val currentRoute = route
     val markers = buildList {
         riskZones.forEach { z ->
             val lat = z.latitude
@@ -3983,12 +4153,27 @@ fun SafeRouteSection(riskZones: List<ServerRiskZone>) {
                 add(GeoMarker("zone-${z.zoneId}", lat, lng, "위험 구간 #${z.zoneId}", c.copy(alpha = 0.5f)))
             }
         }
+        // 경로 주변 위험구간은 진하게 표시
+        currentRoute?.riskZones?.forEach { z ->
+            val lat = z.latitude
+            val lng = z.longitude
+            if (lat != null && lng != null) {
+                val c = when (z.riskGrade) {
+                    "HIGH" -> AppColors.Danger
+                    "MEDIUM" -> AppColors.Warning
+                    "LOW" -> AppColors.Safe
+                    else -> AppColors.TextSub
+                }
+                add(GeoMarker("route-zone-${z.zoneId}", lat, lng, "경로 주변 위험 구간 #${z.zoneId}", c))
+            }
+        }
         start?.let { add(GeoMarker("start", it.first, it.second, "출발지", AppColors.Primary)) }
         destination?.let { add(GeoMarker("destination", it.first, it.second, "목적지", AppColors.Text)) }
     }
 
-    // 지도 시점: 현재 위치 선택 시 그 위치, 아니면 위험구간 전체, 없으면 기본 위치
-    val fitPoints = focus?.let { listOf(it) }
+    // 지도 시점: 경로가 있으면 경로 전체, 현재 위치 선택 시 그 위치, 아니면 위험구간 전체, 없으면 기본 위치
+    val fitPoints = currentRoute?.path
+        ?: focus?.let { listOf(it) }
         ?: riskZones.mapNotNull { z -> z.latitude?.let { lat -> z.longitude?.let { lng -> lat to lng } } }
 
     // 화면이 작아도 모든 컨트롤에 접근할 수 있도록 전체를 스크롤한다
@@ -3999,7 +4184,7 @@ fun SafeRouteSection(riskZones: List<ServerRiskZone>) {
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("출발지: ${formatPoint(start)}", fontSize = 13.sp, color = AppColors.Text, modifier = Modifier.weight(1f))
-                if (start != null) TextButton(onClick = { start = null; focus = null }) { Text("지우기", fontSize = 12.sp) }
+                if (start != null) TextButton(onClick = { start = null; focus = null; resetRoute() }) { Text("지우기", fontSize = 12.sp) }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
@@ -4024,7 +4209,7 @@ fun SafeRouteSection(riskZones: List<ServerRiskZone>) {
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("목적지: ${formatPoint(destination)}", fontSize = 13.sp, color = AppColors.Text, modifier = Modifier.weight(1f))
-                if (destination != null) TextButton(onClick = { destination = null }) { Text("지우기", fontSize = 12.sp) }
+                if (destination != null) TextButton(onClick = { destination = null; resetRoute() }) { Text("지우기", fontSize = 12.sp) }
             }
             OutlinedButton(
                 onClick = { picking = "destination" },
@@ -4038,12 +4223,52 @@ fun SafeRouteSection(riskZones: List<ServerRiskZone>) {
                 )
             }
 
-            // shortcut: 백엔드 경로 추천 API 미구현이라 비활성화, API 명세 확정 후 요청·결과(polyline) 연결
+            // 출발지와 목적지를 모두 선택해야 하고, 요청 중에는 다시 누를 수 없다
             Button(
-                onClick = {},
-                enabled = false,
+                onClick = { requestRoute() },
+                enabled = start != null && destination != null && !routing,
                 modifier = Modifier.fillMaxWidth()
-            ) { Text("안전 경로 요청 (백엔드 준비 중)") }
+            ) {
+                if (routing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = AppColors.OnPrimary
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("경로 확인 중...")
+                } else {
+                    Text("경로 위험도 확인")
+                }
+            }
+            if (start == null || destination == null) {
+                Text("출발지와 목적지를 모두 선택하면 요청할 수 있습니다.", fontSize = 11.sp, color = AppColors.TextSub)
+            }
+
+            routeError?.let { err ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = AppColors.DangerBg),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            when (err.kind) {
+                                RouteErrorKind.NETWORK -> "네트워크 오류"
+                                RouteErrorKind.SERVER -> "서버 오류"
+                                RouteErrorKind.NO_ROUTE -> "경로 없음"
+                                RouteErrorKind.INVALID_INPUT -> "입력 오류"
+                                RouteErrorKind.BAD_RESPONSE -> "응답 오류"
+                            },
+                            fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Danger
+                        )
+                        Text(err.message, fontSize = 12.sp, color = AppColors.Text)
+                        if (err.kind == RouteErrorKind.NETWORK || err.kind == RouteErrorKind.SERVER) {
+                            OutlinedButton(onClick = { requestRoute() }, enabled = !routing) { Text("다시 시도", fontSize = 12.sp) }
+                        }
+                    }
+                }
+            }
         }
 
         OsmMapView(
@@ -4052,11 +4277,64 @@ fun SafeRouteSection(riskZones: List<ServerRiskZone>) {
             // 선택 모드에서 위험구간 마커를 눌러도 그 위치를 선택할 수 있다
             onMarkerClick = { id -> markers.find { it.id == id }?.let { m -> if (picking != null) assign(m.lat, m.lng) } },
             onMapTap = { lat, lng -> assign(lat, lng) },
+            polyline = currentRoute?.path ?: emptyList(),
             fitPoints = fitPoints
         )
 
+        currentRoute?.let { r ->
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                colors = CardDefaults.cardColors(containerColor = AppColors.Card),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("경로 위험도 안내", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text)
+
+                    r.safetyScore?.let {
+                        Text(
+                            "안전 점수: %.0f / 100 (높을수록 안전)".format(java.util.Locale.US, it),
+                            fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text
+                        )
+                    }
+                    r.totalDistance?.let {
+                        Text(
+                            "이동 거리: " + if (it >= 1000) "%.1fkm".format(java.util.Locale.US, it / 1000.0) else "${it}m",
+                            fontSize = 12.sp, color = AppColors.TextSub
+                        )
+                    }
+                    r.totalDuration?.let {
+                        Text(
+                            "예상 시간: " + if (it < 60) "1분 미만" else "약 ${(it + 30) / 60}분",
+                            fontSize = 12.sp, color = AppColors.TextSub
+                        )
+                    }
+
+                    HDivider()
+
+                    val count = r.riskZoneCount ?: r.riskZones.size
+                    Text("경로 주변 위험구간 ${count}곳", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text)
+                    if (r.riskZones.isEmpty()) {
+                        Text("경로 주변에서 등록된 위험구간이 확인되지 않았습니다.", fontSize = 12.sp, color = AppColors.TextSub)
+                    }
+                    r.riskZones.forEach { z ->
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                "#${z.zoneId} · ${z.riskGrade?.let { riskGradeLabel(it) } ?: "등급 정보 없음"}" +
+                                    (z.riskScore?.let { " · 점수 $it" } ?: "") +
+                                    (z.distanceFromRoute?.let { " · 경로에서 %.0fm".format(java.util.Locale.US, it) } ?: ""),
+                                fontSize = 12.sp, fontWeight = FontWeight.Medium, color = AppColors.Text
+                            )
+                            z.reason?.takeIf { it.isNotBlank() }?.let {
+                                Text(it, fontSize = 11.sp, color = AppColors.TextSub)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         Text(
-            "추천 경로는 참고 정보이며 안전을 보장하지 않습니다.",
+            "자동차 길찾기 기반 참고 경로로, 휠체어 통행 가능 여부와 실제 안전을 보장하지 않습니다.",
             fontSize = 11.sp, color = AppColors.TextSub,
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth().padding(8.dp)
