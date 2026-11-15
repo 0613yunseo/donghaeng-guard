@@ -254,7 +254,7 @@ export function EventDetail() {
                   src={
                     e.imageUrl.startsWith("http")
                       ? e.imageUrl
-                      : `http://172.18.95.27:8081${e.imageUrl.startsWith("/") ? "" : "/"}${e.imageUrl}`
+                      : `/${e.imageUrl.replace(/^\/+/, "")}` // 같은 도메인 상대 경로 (/images 는 개발 프록시·Vercel rewrite 가 서버로 전달)
                   }
                   alt={`${e.detectedObject ?? "객체"} 감지 이미지`}
                   className="w-full max-h-96 object-contain rounded-xl"
