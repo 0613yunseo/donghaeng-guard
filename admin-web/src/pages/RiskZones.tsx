@@ -1,11 +1,10 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { MapPin } from "lucide-react";
 import { useApp } from "../contexts/AppContext";
 import { gradeColor } from "../constants/colors";
 import { Card, CardHead, FilterBar, SelectInput, PrimaryBtn, OutlineBtn } from "../components/ui";
 import { GradeBadge } from "../components/badges/RiskBadge";
-import { MapPlaceholder } from "../components/map/MapPlaceholder";
+import { ZoneMap } from "../components/map/ZoneMap";
 import { useApiList } from "../hooks/useApiList";
 import type { RiskGrade } from "../types/admin";
 
@@ -31,17 +30,13 @@ interface ZoneView {
   lng: number | null;
 }
 
-const MIN_ZOOM = 1;
-const MAX_ZOOM = 3;
-
 export function RiskZones() {
   const { t } = useApp();
-  const [zoom, setZoom] = useState(1);
   const [grade, setGrade] = useState("");
   const [applied, setApplied] = useState({ grade: "" });
 
   const { items, loading, error } = useApiList<ZoneApiItem>("/api/risk-zones", "위험 구간");
-  const ZONES: ZoneView[] = items.map(z => ({
+  const ZONES: ZoneView[] = useMemo(() => items.map(z => ({
     id: `ZONE-${z.zoneId}`,
     grade: z.riskGrade ?? "LOW",
     score: z.riskScore ?? 0,
@@ -51,24 +46,9 @@ export function RiskZones() {
       ? `${z.latitude.toFixed(4)}, ${z.longitude.toFixed(4)}` : "위치 정보 없음"),
     lat: z.latitude,
     lng: z.longitude,
-  }));
+  })), [items]);
 
-  const filteredZones = ZONES.filter(z => !applied.grade || z.grade === applied.grade);
-
-  // 실제 좌표를 지도 영역(10~90%) 안의 상대 위치로 환산한다 (실제 지도 타일이 아님)
-  const located = filteredZones.filter(z => z.lat != null && z.lng != null);
-  const lats = located.map(z => z.lat as number);
-  const lngs = located.map(z => z.lng as number);
-  const norm = (v: number, arr: number[]) => {
-    const min = Math.min(...arr), max = Math.max(...arr);
-    return max === min ? 50 : 10 + ((v - min) / (max - min)) * 80;
-  };
-  const filteredPins = located.map(z => ({
-    zoneId: z.id,
-    x: `${norm(z.lng as number, lngs)}%`,
-    y: `${100 - norm(z.lat as number, lats)}%`,
-    zone: z,
-  }));
+  const filteredZones = useMemo(() => ZONES.filter(z => !applied.grade || z.grade === applied.grade), [ZONES, applied.grade]);
 
   const apply = () => {
     setApplied({ grade });
@@ -97,7 +77,7 @@ export function RiskZones() {
         <Card className="col-span-2 flex flex-col overflow-hidden">
           <CardHead
             title="위험 구간 지도"
-            sub="좌표 상대 위치 (실제 지도 연동 예정)"
+            sub="OpenStreetMap · 구간 좌표 기준"
             right={
               <div className="flex items-center gap-4 text-[11px]" style={{ color: t.muted }}>
                 {(["HIGH", "MEDIUM", "LOW"] as RiskGrade[]).map(g => (
@@ -109,54 +89,7 @@ export function RiskZones() {
             }
           />
           <div className="flex-1 m-4 mt-0" style={{ minHeight: 0 }}>
-            <MapPlaceholder label="위험 구간 현황" style={{ height: "100%" }}>
-              {/* Zoomable layer */}
-              <div
-                className="absolute inset-0 transition-transform duration-300 origin-center"
-                style={{ transform: `scale(${zoom})` }}>
-                {filteredPins.map(({ zoneId, x, y, zone }) => (
-                  <div key={zoneId}
-                    className="absolute -translate-x-1/2 -translate-y-1/2 group cursor-pointer z-10"
-                    style={{ left: x, top: y }}>
-                    <div className="relative">
-                      <div className="w-10 h-10 rounded-full flex items-center justify-center shadow-xl"
-                        style={{ background: gradeColor(zone.grade), boxShadow: `0 0 18px ${gradeColor(zone.grade)}50` }}>
-                        <MapPin size={17} color="#fff" />
-                      </div>
-                      <div className="group-hover:block absolute bottom-full left-1/2 -translate-x-1/2 mb-2.5 z-20 whitespace-nowrap rounded-xl px-3 py-2 shadow-2xl"
-                        style={{ background: t.card, border: `1px solid ${t.border}`, boxShadow: t.shadowLg }}>
-                        <p className="text-[12px] font-bold" style={{ color: t.text }}>{zone.id}</p>
-                        <p className="text-[11px] mt-0.5" style={{ color: t.muted }}>점수 {zone.score} · {zone.cnt}건</p>
-                        <p className="text-[11px]" style={{ color: t.muted }}>{zone.loc}</p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Zoom controls */}
-              <div className="absolute bottom-3 right-3 flex flex-col gap-1.5" style={{ zIndex: 30 }}>
-                <button
-                  onClick={() => setZoom(z => Math.min(MAX_ZOOM, +(z + 0.5).toFixed(1)))}
-                  disabled={zoom >= MAX_ZOOM}
-                  className="w-7 h-7 rounded-lg flex items-center justify-center text-sm font-bold transition-opacity"
-                  style={{ background: "rgba(0,0,0,0.6)", color: zoom >= MAX_ZOOM ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.85)" }}>
-                  +
-                </button>
-                <button
-                  onClick={() => setZoom(z => Math.max(MIN_ZOOM, +(z - 0.5).toFixed(1)))}
-                  disabled={zoom <= MIN_ZOOM}
-                  className="w-7 h-7 rounded-lg flex items-center justify-center text-sm font-bold transition-opacity"
-                  style={{ background: "rgba(0,0,0,0.6)", color: zoom <= MIN_ZOOM ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.85)" }}>
-                  −
-                </button>
-              </div>
-
-              <div className="absolute bottom-3 left-16 rounded-lg px-2 py-1 text-[10px] font-mono"
-                style={{ background: "rgba(0,0,0,0.5)", color: "rgba(255,255,255,0.6)", zIndex: 30 }}>
-                {Math.round(zoom * 100)}%
-              </div>
-            </MapPlaceholder>
+            <ZoneMap zones={filteredZones} />
           </div>
         </Card>
 

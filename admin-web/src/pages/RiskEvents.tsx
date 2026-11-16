@@ -41,13 +41,18 @@ export function RiskEvents() {
   const { trips: tripList, loading: tripsLoading } = useTripList();
 
   // ─── 드래프트 필터 (적용 전) ────────────────────────────────
-  const [draftTripId, setDraftTripId] = useState("");
+  // 주행 선택값이 null이면 "아직 고르지 않음" → 가장 최근 주행(tripId 최대)을 자동 선택한다.
+  // 사용자가 초기화하면 ""(선택 없음)로 두어 자동 선택을 다시 하지 않는다.
+  const latestTripId = tripList.length ? String(Math.max(...tripList.map(trip => trip.tripId))) : "";
+  const [draftTripSel, setDraftTripId] = useState<string | null>(null);
+  const draftTripId = draftTripSel ?? latestTripId;
   const [draftRl, setDraftRl] = useState("");
   const [draftSensor, setDraftSensor] = useState("");
   const [draftDev, setDraftDev] = useState("");
 
   // ─── 적용된 필터 ────────────────────────────────────────────
-  const [appliedTripId, setAppliedTripId] = useState("");
+  const [appliedTripSel, setAppliedTripId] = useState<string | null>(null);
+  const appliedTripId = appliedTripSel ?? latestTripId;
   const [applied, setApplied] = useState({ rl: "", sensor: "", rt: "", dev: "" });
 
   // ─── Trip 상세 데이터 (적용된 tripId 기준) ──────────────────
