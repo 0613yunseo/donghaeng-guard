@@ -6,20 +6,23 @@ import { C } from "../constants/colors";
 import { Card, CardHead, FilterBar, SelectInput, PrimaryBtn, OutlineBtn } from "../components/ui";
 import { StatusCard } from "../components/cards/StatusCard";
 import { DeviceTable } from "../components/tables/DeviceTable";
-import { DEVICES } from "../mocks/adminMockData";
-import type { DeviceStatus } from "../types/admin";
+import { useApiList } from "../hooks/useApiList";
+import type { Device, DeviceStatus } from "../types/admin";
+
+interface DeviceApiItem { deviceId: string; deviceStatus: DeviceStatus }
 
 export function Devices() {
   const { t } = useApp();
   const [stF,     setStF]     = useState("");
-  const [sensor,  setSensor]  = useState("");
-  const [applied, setApplied] = useState({ st: "", sensor: "" });
-  const [spinning, setSpinning] = useState(false);
+  const [applied, setApplied] = useState({ st: "" });
 
-  const filtered = DEVICES.filter(d =>
-    (!applied.st     || d.st === applied.st) &&
-    (!applied.sensor || d.sensors.includes(applied.sensor))
-  );
+  // 백엔드는 deviceId/deviceStatus만 제공하므로 나머지 항목은 "—"로 표시한다
+  const { items, loading, error, refresh } = useApiList<DeviceApiItem>("/api/devices?userId=1", "디바이스 목록");
+  const DEVICES: Device[] = items.map(d => ({
+    id: d.deviceId, user: "1", name: "—", sensors: [], st: d.deviceStatus, last: "—",
+  }));
+
+  const filtered = DEVICES.filter(d => !applied.st || d.st === applied.st);
 
   const conn = DEVICES.filter(d => d.st === "CONNECTED").length;
   const disc = DEVICES.filter(d => d.st === "DISCONNECTED").length;
@@ -27,25 +30,22 @@ export function Devices() {
 
   const applyStatusFilter = (val: DeviceStatus) => {
     setStF(val);
-    setApplied({ st: val, sensor: applied.sensor });
+    setApplied({ st: val });
   };
 
   const apply = () => {
-    setApplied({ st: stF, sensor });
+    setApplied({ st: stF });
     toast.success("필터가 적용되었습니다.");
   };
   const reset = () => {
-    setStF(""); setSensor("");
-    setApplied({ st: "", sensor: "" });
+    setStF("");
+    setApplied({ st: "" });
     toast.info("필터가 초기화되었습니다.");
   };
 
   const handleRefresh = () => {
-    setSpinning(true);
-    setTimeout(() => {
-      setSpinning(false);
-      toast.success("디바이스 상태가 새로고침되었습니다.");
-    }, 1200);
+    refresh();
+    toast.success("디바이스 상태를 다시 조회합니다.");
   };
 
   return (
@@ -54,10 +54,6 @@ export function Devices() {
         <SelectInput value={stF} onChange={setStF}>
           <option value="">상태 전체</option>
           {(["CONNECTED","DISCONNECTED","ERROR"] as DeviceStatus[]).map(v => <option key={v} value={v}>{v}</option>)}
-        </SelectInput>
-        <SelectInput value={sensor} onChange={setSensor}>
-          <option value="">센서 전체</option>
-          {["TOF","ULTRASONIC"].map(v => <option key={v} value={v}>{v}</option>)}
         </SelectInput>
         <PrimaryBtn onClick={apply}>적용</PrimaryBtn>
         <OutlineBtn onClick={reset}>초기화</OutlineBtn>
@@ -78,8 +74,8 @@ export function Devices() {
           right={
             <div className="flex gap-2">
               <OutlineBtn icon={RefreshCw} onClick={handleRefresh}>
-                <span className={spinning ? "inline-block animate-spin" : ""}>
-                  {spinning ? "⟳" : "새로고침"}
+                <span className={loading ? "inline-block animate-spin" : ""}>
+                  {loading ? "⟳" : "새로고침"}
                 </span>
               </OutlineBtn>
               <OutlineBtn icon={Download} onClick={() => toast.success("CSV 파일이 다운로드되었습니다.")}>
@@ -88,7 +84,15 @@ export function Devices() {
             </div>
           }
         />
-        <DeviceTable devices={filtered} />
+        {error ? (
+          <p role="alert" className="p-5 text-sm">{error}</p>
+        ) : loading ? (
+          <p role="status" className="p-5 text-sm" style={{ color: t.muted }}>디바이스를 불러오는 중입니다.</p>
+        ) : filtered.length === 0 ? (
+          <p className="p-5 text-sm" style={{ color: t.muted }}>등록된 디바이스가 없습니다.</p>
+        ) : (
+          <DeviceTable devices={filtered} />
+        )}
       </Card>
     </div>
   );

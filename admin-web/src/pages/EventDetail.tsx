@@ -8,8 +8,8 @@ import { useTripDetail } from "../hooks/useTripDetail";
 import { MOCK_AI_PREDICTION } from "../mocks/aiPredictionMock";
 
 export function EventDetail() {
-  const { t, selId, onNav } = useApp();
-  const { events, loading, error } = useTripDetail();
+  const { t, selId, selTripId, onNav } = useApp();
+  const { events, loading, error } = useTripDetail(selTripId || null);
   const [zoom, setZoom] = useState(1);
   const e = events.find(x => x.id === selId);
   const mockAiResult = MOCK_AI_PREDICTION;
@@ -139,6 +139,9 @@ export function EventDetail() {
         <div className="p-5 space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
+              <p className="text-[10px] mb-2" style={{ color: C.warn }}>
+                ※ 아래 AI 분석 값은 샘플입니다 (실제 AI 결과는 AI 분석 페이지 참고)
+              </p>
               <p
                 className="text-xs mb-1"
                 style={{ color: t.muted }}
@@ -251,7 +254,7 @@ export function EventDetail() {
                   src={
                     e.imageUrl.startsWith("http")
                       ? e.imageUrl
-                      : `http://localhost:8081${e.imageUrl.startsWith("/") ? "" : "/"}${e.imageUrl}`
+                      : `/${e.imageUrl.replace(/^\/+/, "")}` // 같은 도메인 상대 경로 (/images 는 개발 프록시·Vercel rewrite 가 서버로 전달)
                   }
                   alt={`${e.detectedObject ?? "객체"} 감지 이미지`}
                   className="w-full max-h-96 object-contain rounded-xl"

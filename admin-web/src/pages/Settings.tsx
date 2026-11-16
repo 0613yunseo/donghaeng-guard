@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { useApp } from "../contexts/AppContext";
 import { C } from "../constants/colors";
 import { Card, CardHead, Toggle } from "../components/ui";
+import { useCurrentUser } from "../hooks/useCurrentUser";
 
 const INIT_TOGGLES: Record<string, boolean> = {
   "DANGER 이벤트 즉시 알림":    true,
@@ -49,6 +50,7 @@ const SECTIONS = [
 
 export function Settings() {
   const { t } = useApp();
+  const user = useCurrentUser();
   const [toggles, setToggles] = useState<Record<string, boolean>>(INIT_TOGGLES);
 
   const setToggle = (key: string, val: boolean) => {
@@ -88,21 +90,19 @@ export function Settings() {
         </Card>
       ))}
 
-      {/* Account info */}
+      {/* Account info: 계정 API가 없어 서버에서 받을 수 있는 값만 표시한다 */}
       <Card>
-        <CardHead title="👤  계정 정보" />
+        <CardHead title="👤  계정 정보" sub="계정 API 연동 전" />
         <div className="p-5 grid grid-cols-3 gap-6">
           {[
-            { label: "관리자 이름",   value: "홍길동" },
-            { label: "이메일",        value: "admin@donghaegg.kr" },
-            { label: "권한",          value: "슈퍼관리자" },
-            { label: "소속 기관",     value: "서울특별시 복지정책실" },
-            { label: "마지막 로그인", value: "2024-06-30 14:20" },
-            { label: "계정 생성일",   value: "2024-01-15" },
+            { label: "사용자 ID", value: user.userId },
+            { label: "이름",      value: user.name },
+            { label: "이메일",    value: user.email ?? "—" },
+            { label: "권한",      value: user.role ?? "—" },
           ].map(f => (
             <div key={f.label}>
-              <p className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: t.muted }}>{f.label}</p>
-              <p className="text-[13px] font-semibold" style={{ color: t.text }}>{f.value}</p>
+              <p className="font-semibold uppercase tracking-wider mb-1" style={{ color: t.muted, fontSize: 10 }}>{f.label}</p>
+              <p className="font-semibold" style={{ color: t.text, fontSize: 13 }}>{f.value}</p>
             </div>
           ))}
         </div>
