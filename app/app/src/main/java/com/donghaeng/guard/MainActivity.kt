@@ -3,6 +3,7 @@ package com.donghaeng.guard
 import android.os.Bundle
 import android.Manifest
 import android.content.Context
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -126,6 +127,45 @@ fun LogoMark(size: Dp = 96.dp, modifier: Modifier = Modifier) {
     )
 }
 
+/**
+ * 접근성·알림 설정. SharedPreferences에 저장하고, Compose 상태라 바뀌면 화면이 바로 갱신된다.
+ * DongHaengGuardApp 시작 시 init(context)를 한 번 호출해야 한다.
+ */
+object UiPrefs {
+    private var sp: SharedPreferences? = null
+
+    var notifEnabled by mutableStateOf(true);       private set
+    var vibrEnabled  by mutableStateOf(true);       private set
+    var soundEnabled by mutableStateOf(true);       private set
+    var fontSize     by mutableStateOf("medium");   private set   // small | medium | large
+    var contrast     by mutableStateOf("normal");   private set   // normal | high
+    var colorMode    by mutableStateOf("default");  private set   // default | protanopia | deuteranopia
+
+    fun init(context: Context) {
+        if (sp != null) return
+        val p = context.applicationContext.getSharedPreferences("ui_prefs", Context.MODE_PRIVATE)
+        sp = p
+        notifEnabled = p.getBoolean("notif", true)
+        vibrEnabled  = p.getBoolean("vibr", true)
+        soundEnabled = p.getBoolean("sound", true)
+        fontSize     = p.getString("fontSize", "medium") ?: "medium"
+        contrast     = p.getString("contrast", "normal") ?: "normal"
+        colorMode    = p.getString("colorMode", "default") ?: "default"
+    }
+
+    fun saveNotif(v: Boolean)  { notifEnabled = v;  sp?.edit()?.putBoolean("notif", v)?.apply() }
+    fun saveVibr(v: Boolean)   { vibrEnabled = v;   sp?.edit()?.putBoolean("vibr", v)?.apply() }
+    fun saveSound(v: Boolean)  { soundEnabled = v;  sp?.edit()?.putBoolean("sound", v)?.apply() }
+    fun saveFontSize(v: String)  { fontSize = v;    sp?.edit()?.putString("fontSize", v)?.apply() }
+    fun saveContrast(v: String)  { contrast = v;    sp?.edit()?.putString("contrast", v)?.apply() }
+    fun saveColorMode(v: String) { colorMode = v;   sp?.edit()?.putString("colorMode", v)?.apply() }
+
+    /** 시스템 글씨 크기에 곱하는 배율 */
+    val fontScale: Float get() = when (fontSize) { "small" -> 0.9f; "large" -> 1.2f; else -> 1f }
+    val highContrast: Boolean get() = contrast == "high"
+    val colorBlind: Boolean get() = colorMode != "default"
+}
+
 object AppColors {
     val Background  = Color(0xFFF8FAFC)
     val Card        = Color(0xFFFFFFFF)
@@ -133,17 +173,43 @@ object AppColors {
     val PrimaryBg   = Color(0xFFDBEAFE)
     val OnPrimary   = Color(0xFFFFFFFF)
     val Surface     = Color(0xFFF1F5F9)
-    val Text        = Color(0xFF111827)
-    val TextSub     = Color(0xFF6B7280)
-    val Border      = Color(0xFFE5E7EB)
-    val Destructive = Color(0xFFEF4444)
-    val Safe        = Color(0xFF22C55E)
-    val SafeBg      = Color(0xFFDCFCE7)
-    val Warning     = Color(0xFFF59E0B)
+    // 높은 대비: 글씨·테두리를 더 진하게
+    val Text        get() = if (UiPrefs.highContrast) Color(0xFF000000) else Color(0xFF111827)
+    val TextSub     get() = if (UiPrefs.highContrast) Color(0xFF374151) else Color(0xFF6B7280)
+    val Border      get() = if (UiPrefs.highContrast) Color(0xFF6B7280) else Color(0xFFE5E7EB)
+    // 색약 보정: 빨강/초록 구분 대신 Okabe-Ito 팔레트(파랑·주황·진주황)로 바꿈
+    val Destructive get() = Danger
+    val Safe        get() = if (UiPrefs.colorBlind) Color(0xFF0072B2) else Color(0xFF22C55E)
+    val SafeBg      get() = if (UiPrefs.colorBlind) Color(0xFFD6EAF8) else Color(0xFFDCFCE7)
+    val Warning     get() = if (UiPrefs.colorBlind) Color(0xFFE6A100) else Color(0xFFF59E0B)
     val WarningBg   = Color(0xFFFEF3C7)
-    val Danger      = Color(0xFFEF4444)
-    val DangerBg    = Color(0xFFFEE2E2)
+    val Danger      get() = if (UiPrefs.colorBlind) Color(0xFFD55E00) else Color(0xFFEF4444)
+    val DangerBg    get() = if (UiPrefs.colorBlind) Color(0xFFFBE3D0) else Color(0xFFFEE2E2)
     val SwitchOff   = Color(0xFFD1D5DB)
+}
+
+/** 위험 단계가 바뀔 때 진동·소리로 알린다. 설정(알림/진동/소리)을 따른다. WARNING은 짧게, DANGER는 길고 강하게. */
+@Suppress("DEPRECATION")
+fun alertRisk(context: Context, level: RiskLevel) {
+    if (level == RiskLevel.SAFE || !UiPrefs.notifEnabled) return
+    val danger = level == RiskLevel.DANGER
+    if (UiPrefs.vibrEnabled) {
+        val vibrator = if (android.os.Build.VERSION.SDK_INT >= 31)
+            (context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as android.os.VibratorManager).defaultVibrator
+        else context.getSystemService(Context.VIBRATOR_SERVICE) as android.os.Vibrator
+        val timings = if (danger) longArrayOf(0, 500, 150, 500, 150, 500) else longArrayOf(0, 250)
+        val amps = if (danger) intArrayOf(0, 255, 0, 255, 0, 255) else intArrayOf(0, 120)
+        vibrator.vibrate(android.os.VibrationEffect.createWaveform(timings, amps, -1))
+    }
+    if (UiPrefs.soundEnabled) {
+        // ToneGenerator는 알림 스트림 볼륨을 따른다. 재생 후 해제.
+        val tone = android.media.ToneGenerator(android.media.AudioManager.STREAM_NOTIFICATION, if (danger) 100 else 60)
+        tone.startTone(
+            if (danger) android.media.ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD else android.media.ToneGenerator.TONE_PROP_BEEP,
+            if (danger) 1200 else 300
+        )
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ tone.release() }, if (danger) 1500L else 600L)
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -984,6 +1050,19 @@ fun DongHaengGuardApp() {
             screen == Screen.DrivingHistory ||
             screen == Screen.RiskZones
 
+    val context = LocalContext.current
+    UiPrefs.init(context)
+
+    // 주행 중 위험 단계가 바뀌면(SAFE→WARNING/DANGER 등) 한 번 알림. shortcut: 같은 단계가 계속되면 반복 알림 없음.
+    LaunchedEffect(riskLevel) {
+        if (tripActive) alertRisk(context, riskLevel)
+    }
+
+    // 글씨 크기 설정: 시스템 글씨 크기 위에 배율을 곱한다
+    val baseDensity = androidx.compose.ui.platform.LocalDensity.current
+    val scaledDensity = androidx.compose.ui.unit.Density(baseDensity.density, baseDensity.fontScale * UiPrefs.fontScale)
+
+    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides scaledDensity) {
     MaterialTheme {
         Scaffold(
             containerColor = AppColors.Background,
@@ -1023,6 +1102,7 @@ fun DongHaengGuardApp() {
                 }
             }
         }
+    }
     }
 }
 
@@ -1153,25 +1233,10 @@ fun LoginScreen(onNavigate: (Screen) -> Unit) {
             modifier = Modifier.fillMaxWidth().height(52.dp),
             shape = RoundedCornerShape(12.dp),
             colors = ButtonDefaults.buttonColors(containerColor = AppColors.Primary)
-        ) { Text("간편 시작", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+        ) { Text("게스트로 시작", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
         Spacer(Modifier.height(8.dp))
+        // shortcut: 인증 API가 없어 로그인·회원가입 진입을 막음. LoginFormScreen/SignupScreen은 API 생기면 다시 연결.
         Text("로그인 없이 바로 사용할 수 있습니다", fontSize = 12.sp, color = AppColors.TextSub, textAlign = TextAlign.Center)
-        Spacer(Modifier.height(32.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            HDivider(modifier = Modifier.weight(1f))
-            Text("  또는  ", fontSize = 12.sp, color = AppColors.TextSub)
-            HDivider(modifier = Modifier.weight(1f))
-        }
-        Spacer(Modifier.height(24.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-            TextButton(onClick = { onNavigate(Screen.LoginForm) }) {
-                Text("로그인", color = AppColors.Primary, fontWeight = FontWeight.Medium)
-            }
-            Text("|", color = AppColors.Border, fontSize = 16.sp)
-            TextButton(onClick = { onNavigate(Screen.Signup) }) {
-                Text("회원가입", color = AppColors.Primary, fontWeight = FontWeight.Medium)
-            }
-        }
     }
 }
 
@@ -4575,9 +4640,10 @@ fun SettingsScreen(onNavigate: (Screen) -> Unit) {
 // ══════════════════════════════════════════════════════════════════════
 @Composable
 fun NotificationSettingsScreen(onNavigate: (Screen) -> Unit) {
-    var notifEnabled  by remember { mutableStateOf(true) }
-    var vibrEnabled   by remember { mutableStateOf(true) }
-    var soundEnabled  by remember { mutableStateOf(true) }
+    val notifEnabled = UiPrefs.notifEnabled
+    val vibrEnabled  = UiPrefs.vibrEnabled
+    val soundEnabled = UiPrefs.soundEnabled
+    val context = LocalContext.current
 
     Column(modifier = Modifier.fillMaxSize().background(AppColors.Background)) {
         AppTopBar(title = "위험 알림 설정", showBack = true, onBack = { onNavigate(Screen.Settings) })
@@ -4609,7 +4675,7 @@ fun NotificationSettingsScreen(onNavigate: (Screen) -> Unit) {
                                 Text(if (notifEnabled) "알림이 활성화되어 있습니다" else "알림이 비활성화되어 있습니다", fontSize = 12.sp, color = AppColors.TextSub)
                             }
                         }
-                        DhSwitch(checked = notifEnabled, onCheckedChange = { notifEnabled = it })
+                        DhSwitch(checked = notifEnabled, onCheckedChange = { UiPrefs.saveNotif(it) })
                     }
                 }
             }
@@ -4638,7 +4704,7 @@ fun NotificationSettingsScreen(onNavigate: (Screen) -> Unit) {
                                     Text("위험 감지 시 진동으로 알림", fontSize = 12.sp, color = AppColors.TextSub)
                                 }
                             }
-                            DhSwitch(checked = vibrEnabled && notifEnabled, onCheckedChange = { vibrEnabled = it }, enabled = notifEnabled)
+                            DhSwitch(checked = vibrEnabled && notifEnabled, onCheckedChange = { UiPrefs.saveVibr(it) }, enabled = notifEnabled)
                         }
                         HDivider(modifier = Modifier.padding(horizontal = 16.dp))
                         Row(
@@ -4656,7 +4722,7 @@ fun NotificationSettingsScreen(onNavigate: (Screen) -> Unit) {
                                     Text("위험 감지 시 알림음 재생", fontSize = 12.sp, color = AppColors.TextSub)
                                 }
                             }
-                            DhSwitch(checked = soundEnabled && notifEnabled, onCheckedChange = { soundEnabled = it }, enabled = notifEnabled)
+                            DhSwitch(checked = soundEnabled && notifEnabled, onCheckedChange = { UiPrefs.saveSound(it) }, enabled = notifEnabled)
                         }
                     }
                 }
@@ -4684,6 +4750,12 @@ fun NotificationSettingsScreen(onNavigate: (Screen) -> Unit) {
                     }
                 }
             }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedButton(onClick = { alertRisk(context, RiskLevel.WARNING) }, modifier = Modifier.weight(1f)) { Text("주의 알림 테스트") }
+                    OutlinedButton(onClick = { alertRisk(context, RiskLevel.DANGER) }, modifier = Modifier.weight(1f)) { Text("위험 알림 테스트") }
+                }
+            }
         }
     }
 }
@@ -4693,9 +4765,9 @@ fun NotificationSettingsScreen(onNavigate: (Screen) -> Unit) {
 // ══════════════════════════════════════════════════════════════════════
 @Composable
 fun AccessibilitySettingsScreen(onNavigate: (Screen) -> Unit) {
-    var fontSize    by remember { mutableStateOf("medium") }
-    var contrast    by remember { mutableStateOf("normal") }
-    var colorMode   by remember { mutableStateOf("default") }
+    val fontSize  = UiPrefs.fontSize
+    val contrast  = UiPrefs.contrast
+    val colorMode = UiPrefs.colorMode
 
     val fontSizeOptions  = listOf(Triple("small",       "작게",  "14px"), Triple("medium", "보통", "16px"), Triple("large", "크게", "18px"))
     val contrastOptions  = listOf(Pair("normal", "일반"), Pair("high", "높음"))
@@ -4726,7 +4798,7 @@ fun AccessibilitySettingsScreen(onNavigate: (Screen) -> Unit) {
                     fontSizeOptions.forEachIndexed { idx, (value, label, size) ->
                         if (idx > 0) HDivider(modifier = Modifier.padding(horizontal = 16.dp))
                         Row(
-                            modifier = Modifier.fillMaxWidth().clickable { fontSize = value }.padding(16.dp),
+                            modifier = Modifier.fillMaxWidth().clickable { UiPrefs.saveFontSize(value) }.padding(16.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -4762,7 +4834,7 @@ fun AccessibilitySettingsScreen(onNavigate: (Screen) -> Unit) {
                     contrastOptions.forEachIndexed { idx, (value, label) ->
                         if (idx > 0) HDivider(modifier = Modifier.padding(horizontal = 16.dp))
                         Row(
-                            modifier = Modifier.fillMaxWidth().clickable { contrast = value }.padding(16.dp),
+                            modifier = Modifier.fillMaxWidth().clickable { UiPrefs.saveContrast(value) }.padding(16.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -4795,7 +4867,7 @@ fun AccessibilitySettingsScreen(onNavigate: (Screen) -> Unit) {
                     colorModeOptions.forEachIndexed { idx, (value, label, desc) ->
                         if (idx > 0) HDivider(modifier = Modifier.padding(horizontal = 16.dp))
                         Row(
-                            modifier = Modifier.fillMaxWidth().clickable { colorMode = value }.padding(16.dp),
+                            modifier = Modifier.fillMaxWidth().clickable { UiPrefs.saveColorMode(value) }.padding(16.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
