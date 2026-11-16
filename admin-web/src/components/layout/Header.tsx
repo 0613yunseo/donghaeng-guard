@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { Bell, Search, Sun, Moon, LogOut, CalendarDays } from "lucide-react";
+import { Bell, Search, Sun, Moon, CalendarDays, User } from "lucide-react";
 import { useApp } from "../../contexts/AppContext";
 import { C } from "../../constants/colors";
-import type { Notification as AppNotification, Page } from "../../types/admin";
+import { UserMenu } from "./UserMenu";
+import type { Notification as AppNotification } from "../../types/admin";
 
 export function Header() {
-  const { t, dark, toggleDark, onNav, sidebarWidth, searchQuery, setSearchQuery } = useApp();
+  const { t, dark, toggleDark, sidebarWidth, searchQuery, setSearchQuery } = useApp();
   const [dropOpen,  setDropOpen] = useState(false);
   const [bellOpen,  setBellOpen] = useState(false);
   const [notifs,    setNotifs]   = useState<AppNotification[]>([]); // 알림 API가 아직 없어 비어 있음
@@ -22,7 +23,7 @@ export function Header() {
 
       {/* Search bar */}
       <div className="relative flex-1" style={{ maxWidth: 480 }}>
-        <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: t.muted }} />
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: t.muted }} />
         <input
           value={searchQuery}
           onChange={e => setSearchQuery(e.target.value)}
@@ -117,51 +118,9 @@ export function Header() {
           <button
             onClick={() => setDropOpen(o => !o)}
             className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white transition-opacity hover:opacity-80"
-            style={{ background: C.blue }}>관</button>
+            style={{ background: C.blue }}><User size={15} /></button>
 
-          {dropOpen && (
-            <div className="absolute right-0 top-full mt-2 w-52 rounded-2xl overflow-hidden z-50"
-              style={{ background: t.card, border: `1px solid ${t.border}`, boxShadow: t.shadowLg }}>
-              <div className="px-4 py-3.5" style={{ borderBottom: `1px solid ${t.border}` }}>
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white shrink-0"
-                    style={{ background: C.blue }}>관</div>
-                  <div>
-                    <p className="text-[13px] font-bold" style={{ color: t.text }}>홍길동</p>
-                    <p className="text-[11px]" style={{ color: t.muted }}>admin@donghaegg.kr</p>
-                  </div>
-                </div>
-              </div>
-              <div className="py-1.5">
-                {([
-                  { label: "마이페이지", sub: "프로필 및 계정 정보", icon: "👤", page: "mypage"   as Page },
-                  { label: "설정",       sub: "알림·시스템 설정",    icon: "⚙️", page: "settings" as Page },
-                ] as const).map(item => (
-                  <button
-                    key={item.label}
-                    onClick={() => { onNav(item.page); setDropOpen(false); }}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors"
-                    onMouseEnter={e => (e.currentTarget.style.background = t.bgSub)}
-                    onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
-                    <span className="text-base">{item.icon}</span>
-                    <div>
-                      <p className="text-[13px] font-medium" style={{ color: t.text }}>{item.label}</p>
-                      <p className="text-[11px]" style={{ color: t.muted }}>{item.sub}</p>
-                    </div>
-                  </button>
-                ))}
-              </div>
-              <div className="py-1.5" style={{ borderTop: `1px solid ${t.border}` }}>
-                <button
-                  className="w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors"
-                  onMouseEnter={e => (e.currentTarget.style.background = t.bgSub)}
-                  onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
-                  <LogOut size={15} style={{ color: C.danger }} />
-                  <p className="text-[13px] font-medium" style={{ color: C.danger }}>로그아웃</p>
-                </button>
-              </div>
-            </div>
-          )}
+          {dropOpen && <UserMenu onClose={() => setDropOpen(false)} className="right-0 top-full mt-2" />}
         </div>
       </div>
     </header>
