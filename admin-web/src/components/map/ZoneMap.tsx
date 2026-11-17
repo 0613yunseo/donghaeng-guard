@@ -10,6 +10,7 @@ export interface ZoneMapItem {
   score: number;
   cnt: number;
   loc: string;
+  label?: string;   // 있으면 툴팁에 점수·건수 대신 이 문구를 쓴다
   lat: number | null;
   lng: number | null;
 }
@@ -49,7 +50,7 @@ export function ZoneMap({ zones }: { zones: ZoneMapItem[] }) {
       if (z.lat == null || z.lng == null) return;
       const color = gradeColor(z.grade);
       L.circleMarker([z.lat, z.lng], { radius: 11, color: "#fff", weight: 2, fillColor: color, fillOpacity: 0.9 })
-        .bindTooltip(`${z.id} · ${z.grade} · 점수 ${z.score} · ${z.cnt}건<br/>${z.loc}`)
+        .bindTooltip(z.label ?? `${z.id} · ${z.grade} · 점수 ${z.score} · ${z.cnt}건<br/>${z.loc}`)
         .addTo(layer);
       points.push([z.lat, z.lng]);
     });

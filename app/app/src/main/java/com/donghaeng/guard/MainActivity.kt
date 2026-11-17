@@ -69,6 +69,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -141,7 +142,7 @@ object UiPrefs {
     var soundEnabled by mutableStateOf(true);       private set
     var fontSize     by mutableStateOf("medium");   private set   // small | medium | large
     var contrast     by mutableStateOf("normal");   private set   // normal | high
-    var colorMode    by mutableStateOf("default");  private set   // default | protanopia | deuteranopia
+    var colorMode    by mutableStateOf("default");  private set   // default | redgreen
 
     fun init(context: Context) {
         if (sp != null) return
@@ -152,7 +153,8 @@ object UiPrefs {
         soundEnabled = p.getBoolean("sound", true)
         fontSize     = p.getString("fontSize", "medium") ?: "medium"
         contrast     = p.getString("contrast", "normal") ?: "normal"
-        colorMode    = p.getString("colorMode", "default") ?: "default"
+        // 예전 적색약/녹색약 설정은 적록색약 하나로 합쳤다
+        colorMode    = (p.getString("colorMode", "default") ?: "default").let { if (it == "protanopia" || it == "deuteranopia") "redgreen" else it }
     }
 
     fun saveNotif(v: Boolean)  { notifEnabled = v;  sp?.edit()?.putBoolean("notif", v)?.apply() }
@@ -1016,6 +1018,28 @@ suspend fun endTrip(tripId: Long): Boolean {
     }
 }
 
+
+/** 주행 중 스마트폰 GPS 전송. 실패해도 주행에는 영향 없으니 조용히 무시한다. */
+suspend fun postTripLocation(tripId: Long, latitude: Double, longitude: Double) {
+    withContext(Dispatchers.IO) {
+        runCatching {
+            val connection = java.net.URL("$API_BASE_URL/api/location/update").openConnection() as java.net.HttpURLConnection
+            try {
+                connection.requestMethod = "POST"
+                connection.setRequestProperty("Content-Type", "application/json")
+                connection.connectTimeout = 3000
+                connection.readTimeout = 3000
+                connection.doOutput = true
+                java.io.OutputStreamWriter(connection.outputStream).use {
+                    it.write("""{"tripId": $tripId, "latitude": $latitude, "longitude": $longitude}""")
+                }
+                connection.responseCode
+            } finally {
+                connection.disconnect()
+            }
+        }
+    }
+}
 
 suspend fun sendMockSensorEvent(
     tripId: Long,
@@ -2014,9 +2038,11 @@ fun MainDrivingScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
+    var permTick by remember { mutableStateOf(0) }   // 권한 응답이 오면 아래 허용 여부를 다시 계산한다
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { }
+    ) { permTick++ }
+    @Suppress("UNUSED_VARIABLE") val permVersion = permTick
 
     val fineLocationGranted = ContextCompat.checkSelfPermission(
         context,
@@ -2055,6 +2081,48 @@ fun MainDrivingScreen(
             }
 
             delay(1000)
+        }
+    }
+
+    // 주행 중 스마트폰 GPS를 서버에 보낸다. 서버가 센서 이벤트의 위치를 이 값으로 덮어쓴다(POST /api/location/update).
+    val locationGranted = fineLocationGranted || coarseLocationGranted
+    var latestGps by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+
+    LaunchedEffect(tripActive) {
+        if (tripActive && !locationGranted) {
+            locationPermissionLauncher.launch(
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+            )
+        }
+    }
+
+    DisposableEffect(tripActive, locationGranted) {
+        if (!tripActive || !locationGranted) return@DisposableEffect onDispose { }
+        val manager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        val listener = object : android.location.LocationListener {
+            override fun onLocationChanged(location: android.location.Location) {
+                latestGps = location.latitude to location.longitude
+            }
+            override fun onProviderEnabled(provider: String) {}
+            override fun onProviderDisabled(provider: String) {}
+            @Deprecated("API 29 이하 호환용")
+            override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+        }
+        getCurrentLocation(context)?.let { latestGps = it }
+        try {
+            listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+                .filter { manager.isProviderEnabled(it) }
+                .forEach { manager.requestLocationUpdates(it, 2000L, 0f, listener, android.os.Looper.getMainLooper()) }
+        } catch (e: SecurityException) {
+            android.util.Log.e("GPS", "위치 권한 없음", e)
+        }
+        onDispose { manager.removeUpdates(listener) }
+    }
+
+    LaunchedEffect(currentTripId, tripActive, latestGps != null) {
+        while (tripActive && currentTripId != null) {
+            latestGps?.let { (lat, lng) -> postTripLocation(currentTripId, lat, lng) }
+            delay(2000)
         }
     }
 
@@ -3331,7 +3399,10 @@ fun DrivingDetailScreen(tripId: String, onNavigate: (Screen) -> Unit) {
     var loading     by remember { mutableStateOf(true) }
     var detail      by remember { mutableStateOf<TripDetail?>(null) }
     var expandedId  by remember { mutableStateOf<String?>(null) }
-    var showMap     by remember { mutableStateOf(false) }
+    var showMap     by remember { mutableStateOf(true) }   // 지도는 화면 맨 위에 기본으로 보인다
+    var focusId     by remember { mutableStateOf<String?>(null) }   // '지도에서 보기'로 고른 이벤트
+    val listState   = androidx.compose.foundation.lazy.rememberLazyListState()
+    val scope       = rememberCoroutineScope()
     var showRawEvents by remember(tripId) { mutableStateOf(false) }
 
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -3430,10 +3501,50 @@ fun DrivingDetailScreen(tripId: String, onNavigate: (Screen) -> Unit) {
         }
 
         LazyColumn(
+            state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            // 지도
+            if (showMap) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = AppColors.Card),
+                        shape = RoundedCornerShape(12.dp), elevation = CardDefaults.cardElevation(1.dp)
+                    ) {
+                        Column {
+                            Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text("🗺", fontSize = 18.sp)
+                                Spacer(Modifier.width(8.dp))
+                                Column {
+                                    Text("위험 발생 위치 지도", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text)
+                                    Text("위험 단계 변경 지점 ${geoMarkers.size}곳 (좌표 있는 이벤트만)", fontSize = 12.sp, color = AppColors.TextSub)
+                                }
+                            }
+                            if (geoMarkers.isEmpty()) {
+                                Text(
+                                    "위치 좌표가 기록된 이벤트가 없습니다.",
+                                    fontSize = 12.sp, color = AppColors.TextSub,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.fillMaxWidth().padding(16.dp)
+                                )
+                            } else {
+                                OsmMapView(
+                                    markers = geoMarkers,
+                                    modifier = Modifier.fillMaxWidth().height(240.dp),
+                                    onMarkerClick = { id -> expandedId = id },
+                                    fitPoints = d.events.firstOrNull { it.id == focusId }
+                                        ?.takeIf { it.lat != null && it.lng != null }
+                                        ?.let { listOf(it.lat!! to it.lng!!) }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             // 주행 요약
             item {
                 Card(
@@ -3551,42 +3662,6 @@ fun DrivingDetailScreen(tripId: String, onNavigate: (Screen) -> Unit) {
                 }
             }
 
-
-            // 지도
-            if (showMap) {
-                item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = AppColors.Card),
-                        shape = RoundedCornerShape(12.dp), elevation = CardDefaults.cardElevation(1.dp)
-                    ) {
-                        Column {
-                            Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text("🗺", fontSize = 18.sp)
-                                Spacer(Modifier.width(8.dp))
-                                Column {
-                                    Text("위험 발생 위치 지도", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text)
-                                    Text("위험 단계 변경 지점 ${geoMarkers.size}곳 (좌표 있는 이벤트만)", fontSize = 12.sp, color = AppColors.TextSub)
-                                }
-                            }
-                            if (geoMarkers.isEmpty()) {
-                                Text(
-                                    "위치 좌표가 기록된 이벤트가 없습니다.",
-                                    fontSize = 12.sp, color = AppColors.TextSub,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.fillMaxWidth().padding(16.dp)
-                                )
-                            } else {
-                                OsmMapView(
-                                    markers = geoMarkers,
-                                    modifier = Modifier.fillMaxWidth().height(240.dp),
-                                    onMarkerClick = { id -> expandedId = id; showMap = false }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
 
             // 이벤트 헤더
             item {
@@ -3734,7 +3809,11 @@ fun DrivingDetailScreen(tripId: String, onNavigate: (Screen) -> Unit) {
                                     }
                                 }
                                 OutlinedButton(
-                                    onClick = { showMap = true },
+                                    onClick = {
+                                        focusId = ev.id
+                                        showMap = true
+                                        scope.launch { listState.animateScrollToItem(0) }
+                                    },
                                     modifier = Modifier.fillMaxWidth().height(38.dp),
                                     shape = RoundedCornerShape(8.dp)
                                 ) { Text("🗺  지도에서 보기", fontSize = 12.sp, color = AppColors.Text) }
@@ -4815,7 +4894,7 @@ fun AccessibilitySettingsScreen(onNavigate: (Screen) -> Unit) {
 
     val fontSizeOptions  = listOf(Triple("small",       "작게",  "14px"), Triple("medium", "보통", "16px"), Triple("large", "크게", "18px"))
     val contrastOptions  = listOf(Pair("normal", "일반"), Pair("high", "높음"))
-    val colorModeOptions = listOf(Triple("default", "기본", "기본 색상 표시"), Triple("protanopia", "적색약", "적색 인식 보정"), Triple("deuteranopia", "녹색약", "녹색 인식 보정"))
+    val colorModeOptions = listOf(Triple("default", "기본", "기본 색상 표시"), Triple("redgreen", "적록색약", "적색·녹색 구분이 어려운 경우(적색약·녹색약) 보정"))
 
     val previewFontSize = when (fontSize) { "small" -> 14.sp; "large" -> 18.sp; else -> 16.sp }
 
