@@ -41,6 +41,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -1114,6 +1115,14 @@ fun DongHaengGuardApp() {
     val context = LocalContext.current
     UiPrefs.init(context)
 
+    // 앱을 켜면 위치 권한을 한 번 요청한다(이미 허용돼 있으면 팝업 없음)
+    val startPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
+    LaunchedEffect(Unit) {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED
+        ) startPermLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+    }
+
     // 주행 중 위험 단계가 바뀌면(SAFE→WARNING/DANGER 등) 한 번 알림. shortcut: 같은 단계가 계속되면 반복 알림 없음.
     LaunchedEffect(riskLevel) {
         if (tripActive) alertRisk(context, riskLevel)
@@ -1178,7 +1187,7 @@ fun BottomNavBar(currentScreen: Screen, onNavigate: (Screen) -> Unit) {
         Tab(Screen.DrivingHistory,"기록",     "≡"),
         Tab(Screen.RiskZones,     "안전 지도", "!"),
     )
-    Surface(color = AppColors.Card, shadowElevation = 8.dp) {
+    Surface(color = AppColors.Card, shadowElevation = 8.dp, modifier = Modifier.navigationBarsPadding()) {
         Row(
             modifier = Modifier.fillMaxWidth().height(64.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
@@ -2286,18 +2295,11 @@ fun MainDrivingScreen(
         Column(
             modifier = Modifier
                 .weight(1f)
-                .then(
-                    if (tripActive) {
-                        Modifier.verticalScroll(rememberScrollState())
-                    } else {
-                        Modifier
-                    }
-                )
                 .padding(
                     start = 20.dp,
                     end = 20.dp,
                     top = 8.dp,
-                    bottom = 24.dp
+                    bottom = 12.dp
                 ),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -2384,6 +2386,11 @@ fun MainDrivingScreen(
                     }
                 }
             } else {
+              // 내용만 스크롤, 주행 종료 버튼은 아래에 고정
+              Column(
+                modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+              ) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -2600,112 +2607,10 @@ fun MainDrivingScreen(
 
                     } // 기존 AI 카드의 Column 종료
                 } // 기존 AI Card 종료
-
-
-
-                Spacer(Modifier.height(12.dp))
-
-                // 개발용 Mock 버튼은 디버그 빌드에서만 노출
-                val isDebuggable =
-                    (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
-
-                if (isDebuggable) OutlinedButton(
-                    onClick = {
-                        val levels = RiskLevel.values()
-                        val dists = listOf(1250, 450, 150)
-                        val next = (riskLevel.ordinal + 1) % levels.size
-
-                        val nextRiskLevel = levels[next]
-                        val nextDistanceMm = dists[next]
-
-                        onRiskLevelChange(nextRiskLevel)
-                        onDistanceMmChange(nextDistanceMm)
-
-                        scope.launch {
-                            if (!fineLocationGranted && !coarseLocationGranted) {
-                                locationPermissionLauncher.launch(
-                                    arrayOf(
-                                        Manifest.permission.ACCESS_FINE_LOCATION,
-                                        Manifest.permission.ACCESS_COARSE_LOCATION
-                                    )
-                                )
-
-                                Toast.makeText(
-                                    context,
-                                    "위치 권한을 허용한 뒤 다시 전송해주세요.",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-
-                                return@launch
-                            }
-
-                            val currentLocation = getCurrentLocation(context)
-
-                            if (currentLocation == null) {
-                                Toast.makeText(
-                                    context,
-                                    "현재 위치를 가져오지 못했습니다. 에뮬레이터 위치 설정을 확인해주세요.",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-
-                                return@launch
-                            }
-
-                            val tripId = currentTripId
-
-                            if (tripId == null) {
-                                Toast.makeText(
-                                    context,
-                                    "주행을 먼저 시작해주세요.",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-
-                                return@launch
-                            }
-
-                            val deviceId = selectedDeviceId
-
-                            if (deviceId == null) {
-                                Toast.makeText(
-                                    context,
-                                    "선택한 센서가 없습니다.",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                                return@launch
-                            }
-
-
-                            val result = sendMockSensorEvent(
-                                tripId = tripId,
-                                deviceId = deviceId,
-                                riskLevel = nextRiskLevel,
-                                distanceMm = nextDistanceMm,
-                                latitude = currentLocation.first,
-                                longitude = currentLocation.second
-                            )
-                            Toast.makeText(context, result, Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(46.dp),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Text(
-                        "[개발용] Mock 센서 이벤트 전송",
-                        fontSize = 13.sp,
-                        color = AppColors.TextSub
-                    )
-                }
+              } // 스크롤 영역 종료
 
                 Button(
                     onClick = {
-                        android.util.Log.d("TRIP_END", "주행 종료 버튼 클릭됨")
-                        Toast.makeText(
-                            context,
-                            "종료 버튼 클릭 확인",
-                            Toast.LENGTH_SHORT
-                        ).show()
                         showEndDialog = true
                     },
                     modifier = Modifier
@@ -3287,12 +3192,7 @@ fun DrivingHistoryScreen(onNavigate: (Screen) -> Unit) {
     Column(modifier = Modifier.fillMaxSize().background(AppColors.Background)) {
         AppTopBar(title = "주행 기록")
         if (isLoading) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator(color = AppColors.Primary)
-            }
+            // 로딩 표시 없이 바로 화면을 보여준다(조회가 끝나면 목록이 채워진다)
         } else if (errorMessage != null) {
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -3443,16 +3343,7 @@ fun DrivingDetailScreen(tripId: String, onNavigate: (Screen) -> Unit) {
             }
         }
 
-        if (loading) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(color = AppColors.Primary, modifier = Modifier.size(48.dp))
-                    Spacer(Modifier.height(16.dp))
-                    Text("주행 정보를 불러오는 중...", fontSize = 14.sp, color = AppColors.TextSub)
-                }
-            }
-            return
-        }
+        if (loading) return   // 로딩 표시 없이 헤더만 두고, 조회가 끝나면 내용이 채워진다
         val d = detail
 
         if (d == null) {
@@ -3506,6 +3397,36 @@ fun DrivingDetailScreen(tripId: String, onNavigate: (Screen) -> Unit) {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            // 날짜·시작·종료·주행 시간 (맨 위)
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = AppColors.Card),
+                    shape = RoundedCornerShape(12.dp), elevation = CardDefaults.cardElevation(1.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(d.date, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text)
+                        Spacer(Modifier.height(12.dp))
+                        Row(modifier = Modifier.fillMaxWidth()) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("시작 시간", fontSize = 12.sp, color = AppColors.TextSub)
+                                Text(d.startTime, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text)
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("종료 시간", fontSize = 12.sp, color = AppColors.TextSub)
+                                Text(d.endTime, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text)
+                            }
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("🕐", fontSize = 14.sp)
+                            Spacer(Modifier.width(6.dp))
+                            Text(d.duration, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text)
+                        }
+                    }
+                }
+            }
+
             // 지도
             if (showMap) {
                 item {
@@ -3545,117 +3466,56 @@ fun DrivingDetailScreen(tripId: String, onNavigate: (Screen) -> Unit) {
                 }
             }
 
-            // 주행 요약
+            // 위험 상황 요약 (주행 종료 화면처럼 단계별 건수 + 짧은 한 줄 요약)
             item {
+                val dangerCnt = d.events.count { it.riskLevel == RiskLevel.DANGER }
+                val warnCnt = d.events.count { it.riskLevel == RiskLevel.WARNING }
+                val safeCnt = d.events.count { it.riskLevel == RiskLevel.SAFE }
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = AppColors.Card),
                     shape = RoundedCornerShape(12.dp), elevation = CardDefaults.cardElevation(1.dp)
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text(d.date, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text)
-                        Spacer(Modifier.height(12.dp))
-                        Row(modifier = Modifier.fillMaxWidth()) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("시작 시간", fontSize = 12.sp, color = AppColors.TextSub)
-                                Text(d.startTime, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text)
-                            }
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("종료 시간", fontSize = 12.sp, color = AppColors.TextSub)
-                                Text(d.endTime, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text)
-                            }
-                        }
-                        Spacer(Modifier.height(10.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("🕐", fontSize = 14.sp)
-                            Spacer(Modifier.width(6.dp))
-                            Text(d.duration, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text)
-                        }
-                    }
-                }
-            }
-
-            
-            // 위험 상황 요약
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = AppColors.Card
-                    ),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
+                        Text("주행 위험 요약", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text)
+                        Spacer(Modifier.height(8.dp))
                         Text(
-                            "주행 위험 상황 요약",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = AppColors.Text
-                        )
-
-                        Text(
-                            "위험 상황 ${riskSituations.size}회 · 원본 이벤트 ${d.events.size}건",
+                            if (riskSituations.isEmpty()) "이번 주행은 주의·위험 상황 없이 안전했어요."
+                            else "주의·위험 상황이 ${riskSituations.size}번 있었어요.",
                             fontSize = 13.sp,
-                            color = AppColors.TextSub
+                            color = if (riskSituations.isEmpty()) AppColors.Safe else AppColors.Text
                         )
-
-                        if (riskSituations.isEmpty()) {
-                            Text(
-                                "기록된 주의·위험 상황이 없습니다.",
-                                fontSize = 13.sp,
-                                color = AppColors.Safe
-                            )
-                        }
-
-                        riskSituations.forEachIndexed { index, situation ->
-                            HDivider()
-
+                        HDivider(modifier = Modifier.padding(vertical = 12.dp))
+                        Text("위험 단계별 센서 이벤트", fontSize = 12.sp, color = AppColors.TextSub)
+                        Spacer(Modifier.height(6.dp))
+                        listOf(
+                            Triple(AppColors.Danger, "위험", dangerCnt),
+                            Triple(AppColors.Warning, "주의", warnCnt),
+                            Triple(AppColors.Safe, "안전", safeCnt)
+                        ).forEach { (color, label, count) ->
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Column(
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Text(
-                                        "위험 상황 ${index + 1}",
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text(
-                                        "${situation.startTime} ~ ${situation.endTime}",
-                                        fontSize = 12.sp,
-                                        color = AppColors.TextSub
-                                    )
-                                    Text(
-                                        "측정 ${situation.eventCount}건 · " +
-                                            (situation.minDistanceMm?.let {
-                                                "최소 거리 ${it}mm"
-                                            } ?: "거리 정보 없음"),
-                                        fontSize = 12.sp,
-                                        color = AppColors.TextSub
-                                    )
-                                    Text(
-                                        if (situation.recovered) {
-                                            "안전 복귀 확인"
-                                        } else {
-                                            "안전 복귀 미확인"
-                                        },
-                                        fontSize = 12.sp,
-                                        color = AppColors.TextSub
-                                    )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(color))
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(label, fontSize = 14.sp, color = AppColors.Text)
                                 }
-
+                                Text("${count}건", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = color)
+                            }
+                        }
+                        riskSituations.forEachIndexed { index, s ->
+                            if (index == 0) HDivider(modifier = Modifier.padding(vertical = 10.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
                                 Text(
-                                    riskLabel(situation.highestRisk),
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = riskColor(situation.highestRisk)
+                                    "${s.startTime} 부근 · ${s.minDistanceMm?.let { "가장 가까울 때 ${it}mm" } ?: "거리 정보 없음"}",
+                                    fontSize = 12.sp, color = AppColors.TextSub, modifier = Modifier.weight(1f)
                                 )
+                                Text(riskLabel(s.highestRisk), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = riskColor(s.highestRisk))
                             }
                         }
                     }
@@ -3671,18 +3531,6 @@ fun DrivingDetailScreen(tripId: String, onNavigate: (Screen) -> Unit) {
                         fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text
                     )
                     Text("${shownEvents.size}건", fontSize = 13.sp, color = AppColors.TextSub)
-                }
-            }
-
-            item {
-                OutlinedButton(
-                    onClick = { showRawEvents = !showRawEvents; expandedId = null },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        if (showRawEvents) "접기" else "원본 이벤트 펼쳐보기 (${d.events.size}건)",
-                        color = AppColors.TextSub
-                    )
                 }
             }
 
@@ -3812,13 +3660,35 @@ fun DrivingDetailScreen(tripId: String, onNavigate: (Screen) -> Unit) {
                                     onClick = {
                                         focusId = ev.id
                                         showMap = true
-                                        scope.launch { listState.animateScrollToItem(0) }
+                                        scope.launch { listState.animateScrollToItem(1) }
                                     },
                                     modifier = Modifier.fillMaxWidth().height(38.dp),
                                     shape = RoundedCornerShape(8.dp)
                                 ) { Text("🗺  지도에서 보기", fontSize = 12.sp, color = AppColors.Text) }
                             }
                         }
+                    }
+                }
+            }
+
+            // 맨 아래: 원본 이벤트 펼치기/접기 + 맨 위로
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = { showRawEvents = !showRawEvents; expandedId = null },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            if (showRawEvents) "원본 이벤트 접기" else "원본 이벤트 펼쳐보기 (${d.events.size}건)",
+                            color = AppColors.TextSub
+                        )
+                    }
+                    if (showRawEvents) {
+                        Button(
+                            onClick = { scope.launch { listState.animateScrollToItem(0) } },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = AppColors.Primary)
+                        ) { Text("▲  맨 위로") }
                     }
                 }
             }
