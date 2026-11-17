@@ -7,7 +7,8 @@ import { useLogout } from "../../hooks/useLogout";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 
 export function Sidebar() {
-  const { t, page, onNav, collapsed, toggleCollapsed } = useApp();
+  const { t, page, onNav, collapsed: collapsedPref, toggleCollapsed, isMobile, mobileNavOpen, setMobileNavOpen } = useApp();
+  const collapsed = collapsedPref && !isMobile;   // 폰의 서랍은 항상 펼친 모양
   const w = collapsed ? 64 : 220;
   const [menuOpen, setMenuOpen] = useState(false);
   const logout = useLogout();
@@ -15,7 +16,10 @@ export function Sidebar() {
 
   return (
     <aside className="fixed inset-y-0 left-0 z-40 flex flex-col transition-all duration-200"
-      style={{ width: w, background: t.sidebar, borderRight: `1px solid ${t.sidebarBorder}` }}>
+      style={{
+        width: w, background: t.sidebar, borderRight: `1px solid ${t.sidebarBorder}`,
+        transform: isMobile && !mobileNavOpen ? "translateX(-100%)" : "none",
+      }}>
 
       {/* Logo area */}
       <div
@@ -35,8 +39,8 @@ export function Sidebar() {
               <p className="leading-tight truncate" style={{ color: t.sidebarMuted, fontSize: 10 }}>Admin Portal</p>
             </div>
             <button
-              onClick={toggleCollapsed}
-              title="사이드바 접기"
+              onClick={isMobile ? () => setMobileNavOpen(false) : toggleCollapsed}
+              title={isMobile ? "메뉴 닫기" : "사이드바 접기"}
               className="flex items-center justify-center rounded-lg transition-all hover:opacity-90"
               style={{ width: 28, height: 28, background: "rgba(255,255,255,0.12)", color: t.sidebarText, flexShrink: 0 }}>
               <PanelLeftClose size={16} />
