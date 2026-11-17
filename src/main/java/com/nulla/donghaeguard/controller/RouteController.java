@@ -46,10 +46,10 @@ public class RouteController {
         try {
             RouteResponse response = routeService.getRecommendedRoute(request);
             return ResponseEntity.ok(response);
-        } catch (RouteService.KakaoApiException e) {
+        } catch (RouteService.TmapApiException e) {
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Map.of(
-                    "error", "KAKAO_API_ERROR",
-                    "message", "카카오 길찾기 API 호출에 실패했습니다: " + e.getMessage()
+                    "error", "TMAP_API_ERROR",
+                    "message", "Tmap 보행자 길찾기 API 호출에 실패했습니다: " + e.getMessage()
             ));
         } catch (RouteService.RouteNotFoundException e) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
