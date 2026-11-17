@@ -19,6 +19,7 @@ function getRiskTransitions(events: RiskEvent[]): RiskEvent[] {
 
   const previousRiskBySensor = new Map<string, RiskLevel>();
 
+  // 변경 여부는 시간순(오래된 것부터)으로 판정하고, 화면에는 최신이 맨 위로 오게 뒤집는다
   return sorted.filter(event => {
     const key = `${event.trip}:${event.dev}:${event.sensor}`;
     const previousRisk = previousRiskBySensor.get(key);
@@ -31,7 +32,7 @@ function getRiskTransitions(events: RiskEvent[]): RiskEvent[] {
     }
 
     return previousRisk !== event.rl;
-  });
+  }).reverse();
 }
 
 export function RiskEvents() {
