@@ -1,12 +1,12 @@
 import { useState } from "react";
-import { Bell, Search, Sun, Moon, CalendarDays, User } from "lucide-react";
+import { Bell, Menu, Search, Sun, Moon, CalendarDays, User } from "lucide-react";
 import { useApp } from "../../contexts/AppContext";
 import { C } from "../../constants/colors";
 import { UserMenu } from "./UserMenu";
 import type { Notification as AppNotification } from "../../types/admin";
 
 export function Header() {
-  const { t, dark, toggleDark, sidebarWidth, searchQuery, setSearchQuery } = useApp();
+  const { t, dark, toggleDark, sidebarWidth, searchQuery, setSearchQuery, isMobile, setMobileNavOpen } = useApp();
   const [dropOpen,  setDropOpen] = useState(false);
   const [bellOpen,  setBellOpen] = useState(false);
   const [notifs,    setNotifs]   = useState<AppNotification[]>([]); // 알림 API가 아직 없어 비어 있음
@@ -18,11 +18,24 @@ export function Header() {
   return (
     <header
       className="fixed top-0 right-0 z-30 h-14 flex items-center gap-4 px-6 transition-all duration-200"
-      style={{ left: sidebarWidth, background: t.header, borderBottom: `1px solid ${t.border}` }}
+      style={{
+        left: sidebarWidth, background: t.header, borderBottom: `1px solid ${t.border}`,
+        ...(isMobile ? { padding: "0 10px", gap: 8 } : {}),
+      }}
       onClick={closeAll}>
 
+      {isMobile && (
+        <button
+          onClick={e => { e.stopPropagation(); setMobileNavOpen(true); }}
+          aria-label="메뉴 열기"
+          className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
+          style={{ background: t.input, border: `1px solid ${t.border}`, color: t.muted }}>
+          <Menu size={16} />
+        </button>
+      )}
+
       {/* Search bar */}
-      <div className="relative flex-1" style={{ maxWidth: 480 }}>
+      <div className="relative flex-1" style={{ maxWidth: 480, minWidth: 0 }}>
         <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: t.muted }} />
         <input
           value={searchQuery}
@@ -37,7 +50,7 @@ export function Header() {
           ? <button onClick={() => setSearchQuery("")}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] hover:opacity-70"
               style={{ color: t.muted }}>✕</button>
-          : <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] px-1.5 py-0.5 rounded font-medium"
+          : !isMobile && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] px-1.5 py-0.5 rounded font-medium"
               style={{ background: t.border, color: t.muted }}>⌘K</span>
         }
       </div>

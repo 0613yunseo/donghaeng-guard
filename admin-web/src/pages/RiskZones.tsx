@@ -72,7 +72,7 @@ export function RiskZones() {
         <span className="text-xs ml-auto" style={{ color: t.muted }}>{filteredZones.length}개 구간 표시 중</span>
       </FilterBar>
 
-      <div className="grid grid-cols-3 gap-4" style={{ height: "calc(100vh - 280px)", minHeight: 480 }}>
+      <div className="grid grid-cols-3 gap-4 stack-sm" style={{ height: "calc(100vh - 280px)", minHeight: 480 }}>
         {/* Map panel */}
         <Card className="col-span-2 flex flex-col overflow-hidden">
           <CardHead
@@ -88,7 +88,7 @@ export function RiskZones() {
               </div>
             }
           />
-          <div className="flex-1 m-4 mt-0" style={{ minHeight: 0 }}>
+          <div className="flex-1 m-4 mt-0" style={{ minHeight: 320 }}>
             <ZoneMap zones={filteredZones} />
           </div>
         </Card>
