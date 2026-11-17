@@ -19,8 +19,11 @@ public class RouteService {
     private final RestTemplate restTemplate;
     private final RiskZoneRepository riskZoneRepository;
 
-    @Value("${kakao.api.key}")
-    private String kakaoApiKey;
+    @Value("${tmap.api.key}")
+    private String tmapApiKey;
+
+    private static final String TMAP_PEDESTRIAN_URL =
+            "https://apis.openapi.sk.com/tmap/routes/pedestrian?version=1";
 
     private static final double RISK_CHECK_RADIUS_M = 50.0;
     private static final double BBOX_MARGIN = 0.005;
@@ -30,8 +33,8 @@ public class RouteService {
         this.riskZoneRepository = riskZoneRepository;
     }
 
-    public static class KakaoApiException extends RuntimeException {
-        public KakaoApiException(String message) { super(message); }
+    public static class TmapApiException extends RuntimeException {
+        public TmapApiException(String message) { super(message); }
     }
 
     public static class RouteNotFoundException extends RuntimeException {
@@ -39,19 +42,20 @@ public class RouteService {
     }
 
     public RouteResponse getRecommendedRoute(RouteRequest req) {
-        KakaoRouteResult kakaoResult = fetchKakaoRoute(req);
+        TmapRouteResult tmapResult = fetchTmapPedestrianRoute(req);
 
-        List<RouteResponse.RoutePoint> path = kakaoResult.path;
-        int totalDistance = kakaoResult.distance;
-        int totalDuration = kakaoResult.duration;
+        List<RouteResponse.RoutePoint> path = tmapResult.path;
+        int totalDistance = tmapResult.distance;
+        int totalDuration = tmapResult.duration;
 
         if (path.isEmpty()) {
-            if (kakaoResult.apiError) {
-                throw new KakaoApiException(kakaoResult.errorMessage);
+            if (tmapResult.apiError) {
+                throw new TmapApiException(tmapResult.errorMessage);
             }
             throw new RouteNotFoundException("경로를 찾을 수 없습니다.");
         }
 
+        // 경로 주변 위험구역 조회 (bounding box)
         double minLat = Double.MAX_VALUE, maxLat = -Double.MAX_VALUE;
         double minLng = Double.MAX_VALUE, maxLng = -Double.MAX_VALUE;
         for (RouteResponse.RoutePoint p : path) {
@@ -66,6 +70,7 @@ public class RouteService {
                 minLng - BBOX_MARGIN, maxLng + BBOX_MARGIN
         );
 
+        // 경로 포인트와 위험구역 거리 계산 (50m 이내)
         List<RouteResponse.RiskZoneInfo> riskZonesOnRoute = new ArrayList<>();
         for (RiskZone zone : nearbyZones) {
             double minDist = Double.MAX_VALUE;
@@ -102,84 +107,113 @@ public class RouteService {
                 .build();
     }
 
-    private static class KakaoRouteResult {
+    // ── Tmap 보행자 길찾기 API 호출 ──
+
+    private static class TmapRouteResult {
         List<RouteResponse.RoutePoint> path = new ArrayList<>();
-        int distance = 0;
-        int duration = 0;
+        int distance = 0;  // 미터
+        int duration = 0;  // 초
         boolean apiError = false;
         String errorMessage = "";
     }
 
     @SuppressWarnings("unchecked")
-    private KakaoRouteResult fetchKakaoRoute(RouteRequest req) {
-        KakaoRouteResult result = new KakaoRouteResult();
+    private TmapRouteResult fetchTmapPedestrianRoute(RouteRequest req) {
+        TmapRouteResult result = new TmapRouteResult();
 
         try {
-            String url = String.format(
-                    "https://apis-navi.kakaomobility.com/v1/directions?origin=%f,%f&destination=%f,%f&priority=RECOMMEND",
-                    req.getStartLng(), req.getStartLat(),
-                    req.getEndLng(), req.getEndLat()
-            );
-
+            // 요청 헤더
             HttpHeaders headers = new HttpHeaders();
-            headers.set("Authorization", "KakaoAK " + kakaoApiKey);
+            headers.setContentType(MediaType.APPLICATION_JSON);
             headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+            headers.set("appKey", tmapApiKey);
 
-            HttpEntity<Void> entity = new HttpEntity<>(headers);
+            // 요청 바디
+            Map<String, String> body = new HashMap<>();
+            body.put("startX", String.valueOf(req.getStartLng()));  // 경도
+            body.put("startY", String.valueOf(req.getStartLat()));  // 위도
+            body.put("endX", String.valueOf(req.getEndLng()));
+            body.put("endY", String.valueOf(req.getEndLat()));
+            body.put("startName", URLEncodeKorean("출발지"));
+            body.put("endName", URLEncodeKorean("도착지"));
 
+            HttpEntity<Map<String, String>> entity = new HttpEntity<>(body, headers);
+
+            // POST 요청
             ResponseEntity<Map> response = restTemplate.exchange(
-                    url, HttpMethod.GET, entity, Map.class);
+                    TMAP_PEDESTRIAN_URL, HttpMethod.POST, entity, Map.class);
 
             if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-                Map<String, Object> body = response.getBody();
-                List<Map<String, Object>> routes = (List<Map<String, Object>>) body.get("routes");
+                Map<String, Object> responseBody = response.getBody();
 
-                if (routes == null || routes.isEmpty()) {
+                // GeoJSON FeatureCollection 파싱
+                List<Map<String, Object>> features =
+                        (List<Map<String, Object>>) responseBody.get("features");
+
+                if (features == null || features.isEmpty()) {
                     return result;
                 }
 
-                Map<String, Object> route = routes.get(0);
+                for (Map<String, Object> feature : features) {
+                    Map<String, Object> geometry =
+                            (Map<String, Object>) feature.get("geometry");
+                    Map<String, Object> properties =
+                            (Map<String, Object>) feature.get("properties");
 
-                Number resultCode = (Number) route.get("result_code");
-                if (resultCode != null && resultCode.intValue() != 0) {
-                    return result;
-                }
+                    if (geometry == null) continue;
 
-                Map<String, Object> summary = (Map<String, Object>) route.get("summary");
-                if (summary != null) {
-                    Number dist = (Number) summary.get("distance");
-                    Number dur = (Number) summary.get("duration");
-                    if (dist != null) result.distance = dist.intValue();
-                    if (dur != null) result.duration = dur.intValue();
-                }
+                    String type = (String) geometry.get("type");
 
-                List<Map<String, Object>> sections = (List<Map<String, Object>>) route.get("sections");
-                if (sections != null) {
-                    for (Map<String, Object> section : sections) {
-                        List<Map<String, Object>> roads = (List<Map<String, Object>>) section.get("roads");
-                        if (roads != null) {
-                            for (Map<String, Object> road : roads) {
-                                List<Number> vertexes = (List<Number>) road.get("vertexes");
-                                if (vertexes != null) {
-                                    for (int i = 0; i < vertexes.size() - 1; i += 2) {
-                                        double lng = vertexes.get(i).doubleValue();
-                                        double lat = vertexes.get(i + 1).doubleValue();
-                                        result.path.add(new RouteResponse.RoutePoint(lat, lng));
-                                    }
-                                }
+                    // 첫 번째 Feature(Point)에 totalDistance, totalTime 존재
+                    if (properties != null && properties.containsKey("totalDistance")) {
+                        Number dist = (Number) properties.get("totalDistance");
+                        Number time = (Number) properties.get("totalTime");
+                        if (dist != null) result.distance = dist.intValue();
+                        if (time != null) result.duration = time.intValue();
+                    }
+
+                    // LineString → 경로 좌표 추출
+                    if ("LineString".equals(type)) {
+                        List<List<Number>> coordinates =
+                                (List<List<Number>>) geometry.get("coordinates");
+                        if (coordinates != null) {
+                            for (List<Number> coord : coordinates) {
+                                double lng = coord.get(0).doubleValue();
+                                double lat = coord.get(1).doubleValue();
+                                result.path.add(new RouteResponse.RoutePoint(lat, lng));
                             }
+                        }
+                    }
+                    // Point → 경유지 (경로 포인트에 추가)
+                    else if ("Point".equals(type)) {
+                        List<Number> coordinates =
+                                (List<Number>) geometry.get("coordinates");
+                        if (coordinates != null && coordinates.size() >= 2) {
+                            double lng = coordinates.get(0).doubleValue();
+                            double lat = coordinates.get(1).doubleValue();
+                            result.path.add(new RouteResponse.RoutePoint(lat, lng));
                         }
                     }
                 }
             }
         } catch (Exception e) {
-            log.error("[경로] 카카오 API 호출 실패: {}", e.getMessage());
+            log.error("[경로] Tmap 보행자 길찾기 API 호출 실패: {}", e.getMessage());
             result.apiError = true;
             result.errorMessage = e.getMessage();
         }
 
         return result;
     }
+
+    private String URLEncodeKorean(String text) {
+        try {
+            return java.net.URLEncoder.encode(text, "UTF-8");
+        } catch (Exception e) {
+            return text;
+        }
+    }
+
+    // ── 안전 점수 계산 ──
 
     private double calculateSafetyScore(List<RouteResponse.RiskZoneInfo> riskZones) {
         double score = 100.0;
@@ -192,6 +226,8 @@ public class RouteService {
         }
         return Math.max(0, score);
     }
+
+    // ── Haversine 거리 계산 ──
 
     private double calculateDistance(double lat1, double lon1, double lat2, double lon2) {
         final double R = 6371000;
