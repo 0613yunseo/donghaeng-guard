@@ -1121,6 +1121,21 @@ fun DongHaengGuardApp() {
         screen = next
     }
     BackHandler(enabled = backStack.isNotEmpty()) { screen = backStack.removeAt(backStack.lastIndex) }
+    // 주행 홈에서 뒤로가기: 안내 후 2초 안에 한 번 더 누르면 종료. 기록/안전 지도 탭에서는 주행 홈으로.
+    val backCtx = LocalContext.current
+    var lastBackAt by remember { mutableStateOf(0L) }
+    val onTab = screen == Screen.MainDriving || screen == Screen.DrivingHistory || screen == Screen.RiskZones
+    BackHandler(enabled = backStack.isEmpty() && onTab) {
+        if (screen != Screen.MainDriving) go(Screen.MainDriving)
+        else {
+            val now = System.currentTimeMillis()
+            if (now - lastBackAt < 2000) (backCtx as? android.app.Activity)?.finish()
+            else {
+                lastBackAt = now
+                Toast.makeText(backCtx, "뒤로 버튼을 한 번 더 누르면 종료됩니다", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
     val showBottomNav = screen == Screen.MainDriving ||
             screen == Screen.DrivingHistory ||
             screen == Screen.RiskZones
@@ -2830,14 +2845,14 @@ fun TripEndScreen(
         modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(4.dp))
         Box(
-            modifier = Modifier.size(96.dp).clip(CircleShape).background(AppColors.SafeBg),
+            modifier = Modifier.size(56.dp).clip(CircleShape).background(AppColors.SafeBg),
             contentAlignment = Alignment.Center
-        ) { Text("✓", fontSize = 48.sp, color = AppColors.Safe, fontWeight = FontWeight.Bold) }
-        Spacer(Modifier.height(20.dp))
-        Text("주행 완료", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = AppColors.Text)
+        ) { Text("✓", fontSize = 28.sp, color = AppColors.Safe, fontWeight = FontWeight.Bold) }
         Spacer(Modifier.height(8.dp))
+        Text("주행 완료", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = AppColors.Text)
+        Spacer(Modifier.height(4.dp))
         Text(
             "주행 ID: $tripId · 주행 기록이 서버에 저장되었습니다",
             fontSize = 14.sp,
@@ -2862,9 +2877,9 @@ fun TripEndScreen(
             colors = CardDefaults.cardColors(containerColor = AppColors.Card),
             shape = RoundedCornerShape(16.dp), elevation = CardDefaults.cardElevation(2.dp)
         ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                Text("주행 요약", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text)
-                Spacer(Modifier.height(16.dp))
+            Column(modifier = Modifier.padding(14.dp)) {
+                Text("주행 요약", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text)
+                Spacer(Modifier.height(8.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("🕐", fontSize = 16.sp)
@@ -2878,13 +2893,13 @@ fun TripEndScreen(
                         color = AppColors.Text
                     )
                 }
-                HDivider(modifier = Modifier.padding(vertical = 12.dp))
+                HDivider(modifier = Modifier.padding(vertical = 8.dp))
                 Text(
                     "위험 단계별 센서 이벤트",
                     fontSize = 12.sp,
                     color = AppColors.TextSub
                 )
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(4.dp))
 
                 listOf(
                     Triple(AppColors.Danger, "위험", summary?.dangerCount),
@@ -2925,8 +2940,9 @@ fun TripEndScreen(
             }
         }
 
-        
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(6.dp))
+        Text("▼ 아래로 스크롤하면 AI 종합 분석 리포트가 있어요", fontSize = 11.sp, color = AppColors.Primary)
+        Spacer(Modifier.height(6.dp))
 
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -4248,6 +4264,7 @@ fun SafeRouteSection(riskZones: List<ServerRiskZone>) {
     var destination by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var picking by remember { mutableStateOf<String?>(null) } // "start" | "destination" | null
     var locating by remember { mutableStateOf(false) }
+    var sheetOpen by remember { mutableStateOf(true) }   // 결과 시트 접기/펼치기(지도를 넓게 보려고)
     // 현재 위치로 출발지를 정했을 때만 지도를 그 위치로 이동한다 (일반 탭 선택은 시점을 유지)
     var focus by remember { mutableStateOf<Pair<Double, Double>?>(null) }
 
@@ -4509,7 +4526,17 @@ fun SafeRouteSection(riskZones: List<ServerRiskZone>) {
                     }
                 }
 
-                currentRoute?.let { r ->
+                if (currentRoute != null) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable { sheetOpen = !sheetOpen }.padding(vertical = 2.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("경로 위험도 결과", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text)
+                        Text(if (sheetOpen) "▼ 내리기" else "▲ 펼치기", fontSize = 12.sp, color = AppColors.Primary)
+                    }
+                }
+                currentRoute?.takeIf { sheetOpen }?.let { r ->
                     Column(
                         modifier = Modifier.heightIn(max = 230.dp).verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -4528,8 +4555,9 @@ fun SafeRouteSection(riskZones: List<ServerRiskZone>) {
                                 r.totalDistance?.let {
                                     RouteStat("이동 거리", if (it >= 1000) "%.1fkm".format(java.util.Locale.US, it / 1000.0) else "${it}m")
                                 }
-                                r.totalDuration?.let {
-                                    RouteStat("예상 시간", if (it < 60) "1분 미만" else "약 ${(it + 30) / 60}분")
+                                // 서버 시간이 보행 속도와 안 맞을 수 있어, 도보 4km/h(≈1.1m/s) 기준으로 거리에서 계산한다
+                                (r.totalDistance?.let { (it / 1.1).toInt() } ?: r.totalDuration)?.let {
+                                    RouteStat("예상 시간(도보)", if (it < 60) "1분 미만" else "약 ${(it + 30) / 60}분")
                                 }
                             }
                         }
