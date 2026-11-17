@@ -6,6 +6,7 @@ import { Card, CardHead, PrimaryBtn, OutlineBtn } from "../components/ui";
 import { RiskBadge } from "../components/badges/RiskBadge";
 import { useTripDetail } from "../hooks/useTripDetail";
 import { MOCK_AI_PREDICTION } from "../mocks/aiPredictionMock";
+import { imageSrc } from "../lib/imageSrc";
 
 export function EventDetail() {
   const { t, selId, selTripId, onNav } = useApp();
@@ -251,11 +252,7 @@ export function EventDetail() {
                 </p>
 
                 <img
-                  src={
-                    e.imageUrl.startsWith("http")
-                      ? e.imageUrl
-                      : `/${e.imageUrl.replace(/^\/+/, "")}` // 같은 도메인 상대 경로 (/images 는 개발 프록시·Vercel rewrite 가 서버로 전달)
-                  }
+                  src={imageSrc(e.imageUrl)}
                   alt={`${e.detectedObject ?? "객체"} 감지 이미지`}
                   className="w-full max-h-96 object-contain rounded-xl"
                   style={{ background: t.bgSub }}

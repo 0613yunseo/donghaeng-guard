@@ -26,6 +26,7 @@ import {
 
 import { useTripList } from "../hooks/useTripList";
 import { useTripDetail } from "../hooks/useTripDetail";
+import { imageSrc } from "../lib/imageSrc";
 
 const DEFAULT_USER_ID = "1";
 
@@ -279,6 +280,41 @@ export function Trips() {
                     </div>
                   )}
                 </div>
+                {/* 위험 순간 사진: 센서가 위험(4·5단계)일 때만 찍으므로 사진이 있는 이벤트만 모은다 */}
+                {(() => {
+                  const photos = tripDetail.events.filter(ev => ev.imageUrl);
+                  return (
+                    <div className="border-t pt-4" style={{ borderColor: t.border }}>
+                      <p className="text-sm font-semibold mb-1" style={{ color: t.text }}>
+                        위험 순간 사진
+                      </p>
+                      <p className="text-xs mb-4" style={{ color: t.muted }}>
+                        {photos.length}건 · 누르면 원본을 새 탭에서 엽니다
+                      </p>
+                      {photos.length === 0 ? (
+                        <p className="py-8 text-center text-sm" style={{ color: t.muted }}>
+                          이 주행에는 저장된 사진이 없습니다.
+                        </p>
+                      ) : (
+                        <div className="grid grid-cols-4 gap-3">
+                          {photos.map(ev => (
+                            <a key={ev.eventId} href={imageSrc(ev.imageUrl!)} target="_blank" rel="noreferrer">
+                              <img
+                                src={imageSrc(ev.imageUrl!)}
+                                alt={`이벤트 ${ev.eventId} 감지 사진`}
+                                loading="lazy"
+                                style={{ width: "100%", aspectRatio: "4 / 3", objectFit: "cover", borderRadius: 8, background: t.bgSub }}
+                              />
+                              <p className="text-[11px] mt-1" style={{ color: t.muted }}>
+                                {ev.detectedAt.replace("T", " ")} · {ev.riskLevel}
+                              </p>
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
                 {/* Tilt sensor graph */}
                 <div
                   className="border-t pt-4"
