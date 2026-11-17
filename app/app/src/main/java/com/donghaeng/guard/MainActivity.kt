@@ -4587,7 +4587,7 @@ fun SafeRouteSection(riskZones: List<ServerRiskZone>) {
                 }
 
                 Text(
-                    "자동차 길찾기 기반 참고 경로로, 휠체어 통행 가능 여부와 실제 안전을 보장하지 않습니다.",
+                    "보행자 길찾기(Tmap) 기반 참고 경로로, 휠체어 통행 가능 여부와 실제 안전을 보장하지 않습니다.",
                     fontSize = 11.sp, color = AppColors.TextSub,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth()
