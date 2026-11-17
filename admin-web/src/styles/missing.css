@@ -1,0 +1,52 @@
+/* ==========================================================
+   missing.css — globals.css 에 정의되지 않았지만 코드에서 쓰는 유틸 클래스.
+   globals.css 뒤에 import 한다(index.css). 새 클래스를 쓰면 여기나 globals.css 에 추가할 것.
+   ========================================================== */
+
+/* border */
+.border-t { border-top: 1px solid rgba(128, 128, 128, 0.25); }
+.border-2 { border: 2px solid; }
+.border-white { border-color: #fff; }
+
+/* text */
+.text-\[9px\]  { font-size: 9px;  line-height: 1.3; }
+.text-\[10px\] { font-size: 10px; line-height: 1.4; }
+.text-\[11px\] { font-size: 11px; line-height: 1.45; }
+.text-\[12px\] { font-size: 12px; line-height: 1.5; }
+.text-\[13px\] { font-size: 13px; line-height: 1.5; }
+.text-\[15px\] { font-size: 15px; line-height: 1.5; }
+.leading-5 { line-height: 1.25rem; }
+.break-all { word-break: break-all; }
+
+/* layout */
+.inline-block { display: inline-block; }
+.object-contain { object-fit: contain; }
+.outline-none { outline: none; }
+
+/* size */
+.h-80 { height: 20rem; }
+.max-h-96 { max-height: 24rem; }
+.max-w-40 { max-width: 10rem; }
+
+/* spacing */
+.pt-4 { padding-top: 1rem; }
+.pb-1 { padding-bottom: 0.25rem; }
+.py-12 { padding-top: 3rem; padding-bottom: 3rem; }
+.mb-2\.5 { margin-bottom: 0.625rem; }
+.space-y-0\.5 > * + * { margin-top: 0.125rem; }
+
+/* position */
+.top-0\.5 { top: 0.125rem; }
+.top-3 { top: 0.75rem; }
+.left-1\/2 { left: 50%; }
+
+/* shadow */
+.shadow { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06); }
+.shadow-xl { box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1); }
+.shadow-2xl { box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.3); }
+
+/* responsive */
+@media (min-width: 768px) {
+  .md\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .md\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}

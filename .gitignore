@@ -1,0 +1,9 @@
+.gradle/
+build/
+bin/
+app/.gradle/
+app/.idea/
+app/build/
+app/app/build/
+*.log
+hs_err_pid*
