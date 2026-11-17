@@ -74,7 +74,7 @@ export function EventDetail() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-4 stack-sm">
         {/* Event details */}
         <Card>
           <CardHead title="이벤트 상세 정보" />
