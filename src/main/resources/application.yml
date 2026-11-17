@@ -24,6 +24,6 @@ ai:
   server:
     url: ${AI_SERVER_URL:http://localhost:8000}
 
-kakao:
+tmap:
   api:
-    key: ${KAKAO_API_KEY:}
+    key: ${TMAP_API_KEY:}

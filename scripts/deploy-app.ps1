@@ -22,5 +22,8 @@ if (-not $apk) { throw "app-debug.apk 를 찾지 못했습니다." }
 
 if (-not $Notes) { $Notes = (git -C $root log -1 --pretty=%s) }
 
-npx firebase-tools appdistribution:distribute $apk.FullName --app $AppId --groups $Group --release-notes $Notes
+# 한글이 깨지지 않게 릴리스 노트는 UTF-8 파일로 넘긴다(PowerShell 5.1은 인자의 한글을 깨뜨림)
+$notesFile = Join-Path $env:TEMP "release-notes.txt"
+[IO.File]::WriteAllText($notesFile, $Notes, (New-Object Text.UTF8Encoding($false)))
+npx firebase-tools appdistribution:distribute $apk.FullName --app $AppId --groups $Group --release-notes-file $notesFile
 if ($LASTEXITCODE -ne 0) { throw "업로드 실패" }
