@@ -27,7 +27,7 @@ android {
             val f = rootProject.file("local.properties")
             if (f.exists()) f.inputStream().use { load(it) }
         }
-        val apiBaseUrl = localProps.getProperty("api.base.url") ?: "http://16.179.202.152:8081"
+        val apiBaseUrl = localProps.getProperty("api.base.url") ?: "http://16.179.249.107:8081"
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
     }
 
