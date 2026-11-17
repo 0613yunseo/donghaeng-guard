@@ -72,6 +72,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -362,8 +364,42 @@ data class TripRecord(
 data class RiskEvent(
     val id: String, val time: String, val riskLevel: RiskLevel,
     val distanceMm: Int, val location: String,
-    val lat: Double? = null, val lng: Double? = null
+    val lat: Double? = null, val lng: Double? = null,
+    val imageUrl: String? = null   // 위험(4·5단계)일 때 센서가 찍은 사진 경로
 )
+
+/** 서버 이미지 경로(/images/...)를 불러와 보여준다. 실패하면 안내 문구. */
+@Composable
+fun EventPhoto(imageUrl: String, modifier: Modifier = Modifier) {
+    val full = if (imageUrl.startsWith("http")) imageUrl else "$API_BASE_URL/${imageUrl.trimStart('/')}"
+    // null = 불러오는 중, Result.failure = 실패
+    val bitmap by produceState<Result<android.graphics.Bitmap>?>(null, full) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                val conn = java.net.URL(full).openConnection() as java.net.HttpURLConnection
+                try {
+                    conn.connectTimeout = 5000
+                    conn.readTimeout = 8000
+                    conn.inputStream.use { android.graphics.BitmapFactory.decodeStream(it) }
+                        ?: error("decode failed")
+                } finally { conn.disconnect() }
+            }
+        }
+    }
+    val r = bitmap
+    when {
+        r == null -> Box(modifier.height(120.dp), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+        }
+        r.isSuccess -> Image(
+            bitmap = r.getOrThrow().asImageBitmap(),
+            contentDescription = "위험 감지 사진",
+            contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+            modifier = modifier.heightIn(max = 240.dp).clip(RoundedCornerShape(8.dp))
+        )
+        else -> Text("사진을 불러오지 못했습니다.", fontSize = 12.sp, color = AppColors.TextSub)
+    }
+}
 
 data class TripDetail(
     val id: String, val date: String, val startTime: String,
@@ -516,7 +552,8 @@ suspend fun fetchTripDetail(tripId: String): TripDetail {
                     lat = if (event.isNull("latitude")) null
                           else event.getDouble("latitude"),
                     lng = if (event.isNull("longitude")) null
-                          else event.getDouble("longitude")
+                          else event.getDouble("longitude"),
+                    imageUrl = event.optString("imageUrl").takeIf { it.isNotBlank() && it != "null" }
                 )
             }
 
@@ -3687,6 +3724,13 @@ fun DrivingDetailScreen(tripId: String, onNavigate: (Screen) -> Unit) {
                                                 color = AppColors.TextSub
                                             )
                                         }
+                                    }
+                                }
+                                ev.imageUrl?.let { url ->
+                                    Column {
+                                        Text("감지 사진", fontSize = 11.sp, color = AppColors.TextSub)
+                                        Spacer(Modifier.height(4.dp))
+                                        EventPhoto(url, Modifier.fillMaxWidth())
                                     }
                                 }
                                 OutlinedButton(

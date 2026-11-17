@@ -1,6 +1,7 @@
 import { useApp } from "../../contexts/AppContext";
 import { C } from "../../constants/colors";
 import { RiskBadge } from "../badges/RiskBadge";
+import { imageSrc } from "../../lib/imageSrc";
 import type { RiskEvent } from "../../types/admin";
 
 interface Props {
@@ -46,6 +47,7 @@ export function RiskEventTable({ events, onRowClick }: Props) {
               "이벤트 ID",
               "감지 시각",
               "위험단계",
+              "사진",
               "센서",
               "위험유형",
               "거리(mm)",
@@ -114,6 +116,28 @@ export function RiskEventTable({ events, onRowClick }: Props) {
                   <RiskBadge level={e.rl} />
                 </td>
 
+                <td className="px-4 py-2">
+                  {e.imageUrl ? (
+                    // 행 클릭(상세 이동)과 구분: 사진을 누르면 원본을 새 탭에서 연다
+                    <a
+                      href={imageSrc(e.imageUrl)}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(ev) => ev.stopPropagation()}
+                      title="원본 사진 열기"
+                    >
+                      <img
+                        src={imageSrc(e.imageUrl)}
+                        alt={`이벤트 ${e.id} 감지 사진`}
+                        loading="lazy"
+                        style={{ width: 56, height: 40, objectFit: "cover", borderRadius: 6, background: t.bgSub }}
+                      />
+                    </a>
+                  ) : (
+                    <span style={{ color: t.muted }}>—</span>
+                  )}
+                </td>
+
                 <td
                   className="px-4 py-3 font-mono"
                   style={{ color: t.textSub }}
@@ -156,6 +180,7 @@ export function RiskEventTable({ events, onRowClick }: Props) {
                 <td className="px-4 py-3" style={{ color: t.muted }}>
                   {e.trip}
                 </td>
+
               </tr>
             );
           })}
