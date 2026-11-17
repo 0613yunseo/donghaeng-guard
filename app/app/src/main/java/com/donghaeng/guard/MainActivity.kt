@@ -15,6 +15,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.time.LocalDateTime
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.mutableStateListOf
 import androidx.activity.compose.setContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.RepeatMode
@@ -712,7 +714,7 @@ class MainActivity : ComponentActivity() {
         setContent { DongHaengGuardApp() }
     }
 }
-fun getCurrentLocation(context: Context): Pair<Double, Double>? {
+fun getCurrentLocation(context: Context, maxAgeMs: Long = Long.MAX_VALUE): Pair<Double, Double>? {
     val fineLocationGranted = ContextCompat.checkSelfPermission(
         context,
         Manifest.permission.ACCESS_FINE_LOCATION
@@ -741,16 +743,16 @@ fun getCurrentLocation(context: Context): Pair<Double, Double>? {
             null
         }
 
-        if (location != null) {
+        if (location != null && System.currentTimeMillis() - location.time <= maxAgeMs) {
             return Pair(location.latitude, location.longitude)
         }
     }
 
     return null
 }
-// 마지막 위치가 없으면 위치를 1회 요청한다 (최대 8초). 권한이 없으면 null.
+// 2분 이내 위치가 있으면 그것을, 아니면 새 위치를 요청한다 (최대 8초). 못 받으면 오래된 마지막 위치로 대체. 권한이 없으면 null.
 suspend fun fetchCurrentLocation(context: Context): Pair<Double, Double>? {
-    getCurrentLocation(context)?.let { return it }
+    getCurrentLocation(context, 120_000L)?.let { return it }
 
     val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
         PackageManager.PERMISSION_GRANTED ||
@@ -759,11 +761,12 @@ suspend fun fetchCurrentLocation(context: Context): Pair<Double, Double>? {
     if (!granted) return null
 
     val manager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-    val provider = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
-        .firstOrNull { manager.isProviderEnabled(it) } ?: return null
+    val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+        .filter { manager.isProviderEnabled(it) }
+    if (providers.isEmpty()) return getCurrentLocation(context)
 
-    return withTimeoutOrNull(8000) {
-        suspendCancellableCoroutine { cont ->
+    val fresh = withTimeoutOrNull(8000) {
+        suspendCancellableCoroutine<Pair<Double, Double>?> { cont ->
             val listener = object : android.location.LocationListener {
                 override fun onLocationChanged(location: android.location.Location) {
                     if (cont.isActive) cont.resumeWith(Result.success(Pair(location.latitude, location.longitude)))
@@ -775,13 +778,14 @@ suspend fun fetchCurrentLocation(context: Context): Pair<Double, Double>? {
             }
             try {
                 @Suppress("DEPRECATION")
-                manager.requestSingleUpdate(provider, listener, android.os.Looper.getMainLooper())
+                providers.forEach { manager.requestSingleUpdate(it, listener, android.os.Looper.getMainLooper()) }
             } catch (e: SecurityException) {
                 cont.resumeWith(Result.success(null))
             }
             cont.invokeOnCancellation { manager.removeUpdates(listener) }
         }
     }
+    return fresh ?: getCurrentLocation(context)
 }
 
 // ── 경로 위험도 안내 API (POST /api/routes/recommend) ─────────────────
@@ -1108,6 +1112,15 @@ fun DongHaengGuardApp() {
     var distanceMm by remember { mutableStateOf(1250) }
     var currentTripId by remember { mutableStateOf<Long?>(null) }
     var selectedDeviceId by remember { mutableStateOf<String?>(null) }
+    // 폰 뒤로가기: 지나온 화면으로 돌아간다. 하단 탭 화면으로 가면 기록을 비운다(탭에서 뒤로가기 = 앱 종료).
+    val backStack = remember { mutableStateListOf<Screen>() }
+    fun go(next: Screen) {
+        if (next == screen) return
+        if (next == Screen.MainDriving || next == Screen.DrivingHistory || next == Screen.RiskZones) backStack.clear()
+        else backStack.add(screen)
+        screen = next
+    }
+    BackHandler(enabled = backStack.isNotEmpty()) { screen = backStack.removeAt(backStack.lastIndex) }
     val showBottomNav = screen == Screen.MainDriving ||
             screen == Screen.DrivingHistory ||
             screen == Screen.RiskZones
@@ -1138,37 +1151,37 @@ fun DongHaengGuardApp() {
             containerColor = AppColors.Background,
             bottomBar = {
                 if (showBottomNav) {
-                    BottomNavBar(currentScreen = screen) { screen = it }
+                    BottomNavBar(currentScreen = screen) { go(it) }
                 }
             }
         ) { innerPadding ->
             Box(modifier = Modifier.padding(innerPadding)) {
                 val s = screen
                 when (s) {
-                    Screen.Onboarding            -> OnboardingScreen          { screen = it }
-                    Screen.Login                 -> LoginScreen                { screen = it }
-                    Screen.LoginForm             -> LoginFormScreen            { screen = it }
-                    Screen.Signup                -> SignupScreen               { screen = it }
+                    Screen.Onboarding            -> OnboardingScreen          { go(it) }
+                    Screen.Login                 -> LoginScreen                { go(it) }
+                    Screen.LoginForm             -> LoginFormScreen            { go(it) }
+                    Screen.Signup                -> SignupScreen               { go(it) }
                     Screen.SensorConnection -> SensorConnectionScreen(
                         onDeviceSelected = { selectedDeviceId = it },
-                        onNavigate = { screen = it }
+                        onNavigate = { go(it) }
                     )
-                    Screen.SensorManagement      -> SensorManagementScreen     { screen = it }
+                    Screen.SensorManagement      -> SensorManagementScreen     { go(it) }
                     Screen.MainDriving -> MainDrivingScreen(
                         tripActive, { tripActive = it },
                         riskLevel, { riskLevel = it },
                         distanceMm, { distanceMm = it },
                         currentTripId, { currentTripId = it },
                         selectedDeviceId
-                    ) { screen = it }
-                    is Screen.TripEnd -> TripEndScreen(s.tripId) { screen = it }
-                    Screen.DrivingHistory        -> DrivingHistoryScreen       { screen = it }
-                    is Screen.DrivingDetail      -> DrivingDetailScreen(s.tripId) { screen = it }
-                    Screen.RiskZones             -> RiskZonesScreen           { screen = it }
-                    Screen.Settings              -> SettingsScreen             { screen = it }
-                    Screen.NotificationSettings  -> NotificationSettingsScreen { screen = it }
-                    Screen.AccessibilitySettings -> AccessibilitySettingsScreen{ screen = it }
-                    Screen.Account               -> AccountScreen              { screen = it }
+                    ) { go(it) }
+                    is Screen.TripEnd -> TripEndScreen(s.tripId) { go(it) }
+                    Screen.DrivingHistory        -> DrivingHistoryScreen       { go(it) }
+                    is Screen.DrivingDetail      -> DrivingDetailScreen(s.tripId) { go(it) }
+                    Screen.RiskZones             -> RiskZonesScreen           { go(it) }
+                    Screen.Settings              -> SettingsScreen             { go(it) }
+                    Screen.NotificationSettings  -> NotificationSettingsScreen { go(it) }
+                    Screen.AccessibilitySettings -> AccessibilitySettingsScreen{ go(it) }
+                    Screen.Account               -> AccountScreen              { go(it) }
                 }
             }
         }
@@ -2812,12 +2825,12 @@ fun TripEndScreen(
             }
     }
 
+    Column(modifier = Modifier.fillMaxSize().background(AppColors.Background).padding(horizontal = 24.dp, vertical = 12.dp)) {
     Column(
-        modifier = Modifier.fillMaxSize().background(AppColors.Background)
-            .verticalScroll(rememberScrollState()).padding(24.dp),
+        modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(Modifier.height(32.dp))
+        Spacer(Modifier.height(20.dp))
         Box(
             modifier = Modifier.size(96.dp).clip(CircleShape).background(AppColors.SafeBg),
             contentAlignment = Alignment.Center
@@ -3037,14 +3050,15 @@ fun TripEndScreen(
 
 
         
-        Spacer(Modifier.height(24.dp))
+    } // 스크롤 영역 종료 — 아래 버튼은 고정
+        Spacer(Modifier.height(10.dp))
         Button(
             onClick = { onNavigate(Screen.DrivingHistory) },
             modifier = Modifier.fillMaxWidth().height(52.dp),
             shape = RoundedCornerShape(12.dp),
             colors = ButtonDefaults.buttonColors(containerColor = AppColors.Primary)
         ) { Text("≡  기록 보기", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(8.dp))
         OutlinedButton(
             onClick = { onNavigate(Screen.MainDriving) },
             modifier = Modifier.fillMaxWidth().height(48.dp),
@@ -3192,7 +3206,12 @@ fun DrivingHistoryScreen(onNavigate: (Screen) -> Unit) {
     Column(modifier = Modifier.fillMaxSize().background(AppColors.Background)) {
         AppTopBar(title = "주행 기록")
         if (isLoading) {
-            // 로딩 표시 없이 바로 화면을 보여준다(조회가 끝나면 목록이 채워진다)
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = AppColors.Primary)
+            }
         } else if (errorMessage != null) {
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -3299,7 +3318,8 @@ fun DrivingDetailScreen(tripId: String, onNavigate: (Screen) -> Unit) {
     var loading     by remember { mutableStateOf(true) }
     var detail      by remember { mutableStateOf<TripDetail?>(null) }
     var expandedId  by remember { mutableStateOf<String?>(null) }
-    var showMap     by remember { mutableStateOf(true) }   // 지도는 화면 맨 위에 기본으로 보인다
+    var showMap     by remember { mutableStateOf(false) }   // 지도는 기본으로 접혀 있고, 🗺 버튼이나 '지도에서 보기'로 연다
+    var showSummaryList by remember { mutableStateOf(false) }   // 위험 요약 상세 목록(드롭다운)
     var focusId     by remember { mutableStateOf<String?>(null) }   // '지도에서 보기'로 고른 이벤트
     val listState   = androidx.compose.foundation.lazy.rememberLazyListState()
     val scope       = rememberCoroutineScope()
@@ -3505,8 +3525,17 @@ fun DrivingDetailScreen(tripId: String, onNavigate: (Screen) -> Unit) {
                                 Text("${count}건", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = color)
                             }
                         }
-                        riskSituations.forEachIndexed { index, s ->
-                            if (index == 0) HDivider(modifier = Modifier.padding(vertical = 10.dp))
+                        if (riskSituations.isNotEmpty()) {
+                            HDivider(modifier = Modifier.padding(vertical = 8.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth().clickable { showSummaryList = !showSummaryList }.padding(vertical = 6.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("상황별 자세히 보기 (${riskSituations.size}건)", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text)
+                                Text(if (showSummaryList) "▲" else "▼", fontSize = 12.sp, color = AppColors.TextSub)
+                            }
+                        }
+                        if (showSummaryList) riskSituations.forEachIndexed { _, s ->
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween
@@ -3660,7 +3689,7 @@ fun DrivingDetailScreen(tripId: String, onNavigate: (Screen) -> Unit) {
                                     onClick = {
                                         focusId = ev.id
                                         showMap = true
-                                        scope.launch { listState.animateScrollToItem(1) }
+                                        scope.launch { delay(150); listState.animateScrollToItem(1) }
                                     },
                                     modifier = Modifier.fillMaxWidth().height(38.dp),
                                     shape = RoundedCornerShape(8.dp)
