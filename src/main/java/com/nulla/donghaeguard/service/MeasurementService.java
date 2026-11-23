@@ -134,10 +134,36 @@ public class MeasurementService {
                     .build());
         }
 
+        // ===== Trip highestRiskLevel 및 eventCount 갱신 =====
+        updateTripRiskAndCount(trip, riskLevel);
+
         // ===== AI 예측 + LLM 설명: DB 커밋 이후 비동기 실행 =====
         scheduleAiPrediction(req.measurementId(), req.tripId(), req.riskLevel(), us, tilt, cam);
 
         return measurement.getMeasurementId();
+    }
+
+    /**
+     * Trip의 highestRiskLevel과 eventCount를 갱신
+     */
+    private void updateTripRiskAndCount(Trip trip, SensorEvent.RiskLevel riskLevel) {
+        // eventCount 증가
+        trip.incrementEventCount();
+
+        // highestRiskLevel 갱신 (SAFE < WARNING < DANGER)
+        Trip.HighestRiskLevel newLevel;
+        try {
+            newLevel = Trip.HighestRiskLevel.valueOf(riskLevel.name());
+        } catch (IllegalArgumentException e) {
+            newLevel = Trip.HighestRiskLevel.SAFE;
+        }
+
+        Trip.HighestRiskLevel current = trip.getHighestRiskLevel();
+        if (current == null || newLevel.ordinal() > current.ordinal()) {
+            trip.updateHighestRiskLevel(newLevel);
+        }
+
+        tripRepository.save(trip);
     }
 
     private void scheduleAiPrediction(String measurementId, Long tripId, String riskLevel,
