@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { useApp } from "../contexts/AppContext";
 import { C } from "../constants/colors";
 import { Card, CardHead, Toggle } from "../components/ui";
+import { useCurrentUser } from "../hooks/useCurrentUser";
 
 const INIT_TOGGLES: Record<string, boolean> = {
   "DANGER 이벤트 즉시 알림":    true,
@@ -17,6 +18,8 @@ const INIT_TOGGLES: Record<string, boolean> = {
   "관리자 계정 권한 관리":       true,
   "감사 로그 활성화":            false,
 };
+
+const STORAGE_KEY = "donghaeng-admin-settings";
 
 const SECTIONS = [
   {
@@ -49,11 +52,21 @@ const SECTIONS = [
 
 export function Settings() {
   const { t } = useApp();
-  const [toggles, setToggles] = useState<Record<string, boolean>>(INIT_TOGGLES);
+  const user = useCurrentUser();
+  // 서버에 설정 API가 없어 이 브라우저(localStorage)에만 저장한다. 서버 동작에는 영향 없음.
+  const [toggles, setToggles] = useState<Record<string, boolean>>(() => {
+    try {
+      return { ...INIT_TOGGLES, ...JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}") };
+    } catch {
+      return INIT_TOGGLES;
+    }
+  });
 
   const setToggle = (key: string, val: boolean) => {
-    setToggles(prev => ({ ...prev, [key]: val }));
-    toast.success(`${key} ${val ? "활성화" : "비활성화"}되었습니다.`);
+    const next = { ...toggles, [key]: val };
+    setToggles(next);
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch { /* 저장 불가 환경 */ }
+    toast.success(`${key} ${val ? "켜짐" : "꺼짐"} (이 브라우저에만 저장)`);
   };
 
   return (
@@ -63,11 +76,10 @@ export function Settings() {
           <p className="font-bold text-[15px]" style={{ color: t.text }}>설정</p>
           <p className="text-xs mt-0.5" style={{ color: t.muted }}>서비스 운영 환경과 알림 조건을 설정합니다.</p>
         </div>
-        <button
-          className="h-8 px-4 rounded-xl text-xs font-semibold text-white transition-opacity hover:opacity-80"
-          style={{ background: C.blue }}>
-          변경사항 저장
-        </button>
+      </div>
+
+      <div className="px-4 py-3 rounded-xl text-xs" style={{ background: `${C.blue}12`, color: t.muted, border: `1px solid ${t.border}` }}>
+        설정 API가 아직 없어 이 화면의 토글은 이 브라우저에만 저장되며 서버 동작에는 영향을 주지 않습니다.
       </div>
 
       {SECTIONS.map(sec => (
@@ -88,21 +100,19 @@ export function Settings() {
         </Card>
       ))}
 
-      {/* Account info */}
+      {/* Account info: 계정 API가 없어 서버에서 받을 수 있는 값만 표시한다 */}
       <Card>
-        <CardHead title="👤  계정 정보" />
+        <CardHead title="👤  계정 정보" sub="계정 API 연동 전" />
         <div className="p-5 grid grid-cols-3 gap-6">
           {[
-            { label: "관리자 이름",   value: "홍길동" },
-            { label: "이메일",        value: "admin@donghaegg.kr" },
-            { label: "권한",          value: "슈퍼관리자" },
-            { label: "소속 기관",     value: "서울특별시 복지정책실" },
-            { label: "마지막 로그인", value: "2024-06-30 14:20" },
-            { label: "계정 생성일",   value: "2024-01-15" },
+            { label: "사용자 ID", value: user.userId },
+            { label: "이름",      value: user.name },
+            { label: "이메일",    value: user.email ?? "—" },
+            { label: "권한",      value: user.role ?? "—" },
           ].map(f => (
             <div key={f.label}>
-              <p className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: t.muted }}>{f.label}</p>
-              <p className="text-[13px] font-semibold" style={{ color: t.text }}>{f.value}</p>
+              <p className="font-semibold uppercase tracking-wider mb-1" style={{ color: t.muted, fontSize: 10 }}>{f.label}</p>
+              <p className="font-semibold" style={{ color: t.text, fontSize: 13 }}>{f.value}</p>
             </div>
           ))}
         </div>

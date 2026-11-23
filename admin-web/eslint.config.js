@@ -19,4 +19,15 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  {
+    // 상수/훅/variants를 컴포넌트와 함께 export하는 shadcn 생성 파일 및 컨텍스트 파일 한정
+    files: [
+      'src/app/components/ui/**/*.{ts,tsx}',
+      'src/components/ui/index.tsx',
+      'src/contexts/AppContext.tsx',
+    ],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
+  },
 ])

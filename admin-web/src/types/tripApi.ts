@@ -42,3 +42,20 @@ export interface TripApiResponse {
   data: TripDetailResponse | null;
   message: string;
 }
+
+export interface TripListItemResponse {
+  tripId: number;
+  startedAt: string;
+  endedAt: string | null;
+  status: TripStatus;
+  eventCount: number;
+  highestRiskLevel: RiskLevel | null;
+  deviceId?: string | null;
+  deviceName?: string | null;
+}
+
+export interface TripListApiResponse {
+  success: boolean;
+  data: TripListItemResponse[] | null;
+  message: string;
+}

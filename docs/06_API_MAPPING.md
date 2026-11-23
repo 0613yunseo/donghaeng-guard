@@ -332,7 +332,7 @@ BLE 검색/연결 자체는 앱 내부 기능이다.
 | ----------- | ------ | -------------------------- | ---------------------------------- | ---------------- |
 | 위험 구간 조회    | GET    | `/api/risk-zones`          | currentLocation, radius, riskGrade | riskZones[]      |
 | 위험 구간 상세 조회 | GET    | `/api/risk-zones/{zoneId}` | zoneId                             | risk zone detail |
-| 안전 경로 요청    | POST   | `/api/routes/recommend`    | start, destination                 | routeResult      |
+| 경로 위험도 안내  | POST   | `/api/routes/recommend`    | startLat, startLng, endLat, endLng | RouteResponse (아래 참고) |
 
 
 ### 위험 구간 응답 예시
@@ -353,6 +353,70 @@ BLE 검색/연결 자체는 앱 내부 기능이다.
 }
 
 ```
+
+
+### 경로 위험도 안내 API (`POST /api/routes/recommend`)
+
+백엔드 `RouteController` / `RouteRequest` / `RouteResponse` 기준이다. 성공 응답은 `ApiResponse` 래퍼 없이 객체를 그대로 반환한다.
+경로는 카카오 자동차 길찾기 기반의 참고 경로이며 휠체어 통행 가능 여부와 실제 안전을 보장하지 않는다.
+
+**요청**
+
+```json
+{
+  "startLat": 35.1796,
+  "startLng": 129.0756,
+  "endLat": 35.1820,
+  "endLng": 129.0800
+}
+```
+
+**응답**
+
+```json
+{
+  "totalDistance": 820,
+  "totalDuration": 900,
+  "riskZoneCount": 1,
+  "safetyScore": 90.0,
+  "path": [
+    { "latitude": 35.1796, "longitude": 129.0756 }
+  ],
+  "riskZones": [
+    {
+      "zoneId": 3,
+      "latitude": 35.1800,
+      "longitude": 129.0770,
+      "riskScore": 60,
+      "riskGrade": "MEDIUM",
+      "reason": "동일 구간에서 WARNING 이벤트가 반복 감지되었습니다.",
+      "distanceFromRoute": 12.4
+    }
+  ]
+}
+```
+
+| 필드 | 타입 | 설명 |
+| ---- | ---- | ---- |
+| `totalDistance` | int | 경로 거리(m) |
+| `totalDuration` | int | 예상 시간(초) |
+| `riskZoneCount` | int | 경로에서 50m 이내인 위험 구간 수 |
+| `safetyScore` | double | 0~100, 높을수록 안전. 위험 구간당 HIGH -20 / MEDIUM -10 / LOW -5 |
+| `path` | array | 경로 좌표 `{latitude, longitude}` |
+| `riskZones` | array | 경로 주변 위험 구간 (`zoneId`, `latitude`, `longitude`, `riskScore`, `riskGrade`, `reason`, `distanceFromRoute`(m)) |
+
+**오류 응답** (본문: `{ "error": "...", "message": "..." }`, `ApiResponse` 래퍼 없음)
+
+| HTTP | error | 의미 |
+| ---- | ----- | ---- |
+| 400 | `BAD_REQUEST` | 출발지·목적지 좌표 누락 |
+| 400 | `INVALID_COORDINATES` | 한국 영역(위도 33~39, 경도 124~132) 밖 좌표 |
+| 400 | `SAME_LOCATION` | 출발지와 목적지가 동일 (약 11m 이내) |
+| 404 | `ROUTE_NOT_FOUND` | 경로를 찾을 수 없음 |
+| 502 | `KAKAO_API_ERROR` | 카카오 길찾기 API 호출 실패 |
+
+- 성공 응답의 `fallback`은 대체 경로 여부이며, 현재 서버는 항상 `false`를 반환한다. 앱은 `true`이면 경로로 표시하지 않는다.
+- 카카오 REST API 키는 서버 환경변수로만 관리하며 앱에는 포함하지 않는다.
 
 ---
 
