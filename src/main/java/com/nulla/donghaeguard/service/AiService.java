@@ -93,8 +93,17 @@ public class AiService {
         );
     }
 
+    /**
+     * AI 위험 구간 분석 결과 저장 (전체 교체 방식)
+     * - 기존 risk_zones 전체 삭제 후 신규 구간 저장
+     * - 하나의 트랜잭션: 저장 중 오류 나면 삭제도 롤백되어 기존 구간 유지
+     */
     @Transactional
     public int saveAiResult(AiResultRequest request) {
+        if (request.getZones() == null) {
+            return 0;  // zones 필드 자체가 없으면 기존 데이터 유지
+        }
+
         List<RiskZone> zones = request.getZones().stream()
                 .map(z -> RiskZone.builder()
                         .latitude(z.getLatitude())
@@ -107,6 +116,8 @@ public class AiService {
                         .build())
                 .toList();
 
+        // 기존 위험 구간 전체 삭제 후 신규 저장
+        riskZoneRepository.deleteAllInBatch();
         riskZoneRepository.saveAll(zones);
 
         return zones.size();
