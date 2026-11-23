@@ -51,6 +51,14 @@
   .md\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
+/* 위험 구간 지도: 선택된 마커의 테두리가 깜빡인다 */
+@keyframes zone-pulse {
+  0%, 100% { stroke-width: 4px; stroke-opacity: 1; }
+  50% { stroke-width: 11px; stroke-opacity: 0.35; }
+}
+.zone-pulse { animation: zone-pulse 1.1s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .zone-pulse { animation: none; } }
+
 /* ── 폰 화면(767px 이하) ──────────────────────────────────── */
 @media (max-width: 767px) {
   /* 3·4열 격자는 2열로 */
