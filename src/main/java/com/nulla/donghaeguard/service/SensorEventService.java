@@ -53,6 +53,13 @@ public class SensorEventService {
 
         SensorEvent saved = sensorEventRepository.save(sensorEvent);
 
+        // ── Trip의 highestRiskLevel 업데이트 ──
+        updateTripHighestRiskLevel(trip, saved.getRiskLevel());
+
+        // Trip의 eventCount 증가
+        trip.incrementEventCount();
+        tripRepository.save(trip);
+
         // 센서 타입별 세부 데이터 저장
         switch (request.getSensorType()) {
             case "ULTRASONIC" -> {
@@ -89,6 +96,25 @@ public class SensorEventService {
                 saved.getRiskLevel().name(),
                 true
         );
+    }
+
+    /**
+     * 새 이벤트의 riskLevel이 현재 Trip의 highestRiskLevel보다 높으면 업데이트
+     * 우선순위: DANGER > WARNING > SAFE
+     */
+    private void updateTripHighestRiskLevel(Trip trip, SensorEvent.RiskLevel newLevel) {
+        Trip.HighestRiskLevel newHighest = switch (newLevel) {
+            case DANGER -> Trip.HighestRiskLevel.DANGER;
+            case WARNING -> Trip.HighestRiskLevel.WARNING;
+            case SAFE -> Trip.HighestRiskLevel.SAFE;
+        };
+
+        Trip.HighestRiskLevel current = trip.getHighestRiskLevel();
+
+        // 현재 null이거나, 새 레벨이 더 높으면 업데이트
+        if (current == null || newHighest.ordinal() > current.ordinal()) {
+            trip.updateHighestRiskLevel(newHighest);
+        }
     }
 
     @Transactional(readOnly = true)

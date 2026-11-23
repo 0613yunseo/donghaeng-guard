@@ -13,4 +13,6 @@ public class TripListResponse {
     private String status;
     private Integer eventCount;
     private String highestRiskLevel;
+    private String deviceId;
+    private String deviceName;
 }

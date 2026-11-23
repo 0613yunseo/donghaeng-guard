@@ -9,6 +9,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.List;
 
 @Service
@@ -22,6 +25,8 @@ public class TripService {
     private final UltrasonicEventRepository ultrasonicEventRepository;
     private final TiltEventRepository tiltEventRepository;
     private final CameraEventRepository cameraEventRepository;
+
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     @Transactional
     public TripStartResponse startTrip(TripStartRequest request) {
@@ -111,7 +116,9 @@ public class TripService {
                         trip.getEndedAt(),
                         trip.getTripStatus().name(),
                         trip.getEventCount(),
-                        trip.getHighestRiskLevel() != null ? trip.getHighestRiskLevel().name() : null
+                        trip.getHighestRiskLevel() != null ? trip.getHighestRiskLevel().name() : null,
+                        trip.getDevice() != null ? trip.getDevice().getDeviceId() : null,
+                        trip.getDevice() != null ? trip.getDevice().getDeviceName() : null
                 ))
                 .toList();
     }
@@ -134,6 +141,8 @@ public class TripService {
                 trip.getTripStatus().name(),
                 trip.getEventCount(),
                 trip.getHighestRiskLevel() != null ? trip.getHighestRiskLevel().name() : null,
+                trip.getDevice() != null ? trip.getDevice().getDeviceId() : null,
+                trip.getDevice() != null ? trip.getDevice().getDeviceName() : null,
                 eventResponses
         );
     }
@@ -177,13 +186,22 @@ public class TripService {
             }
         }
 
+        // UTC → KST 변환
+        LocalDateTime detectedAtKst = convertUtcToKst(e.getDetectedAt());
+
+        // device 정보
+        String deviceId = e.getDevice() != null ? e.getDevice().getDeviceId() : null;
+        String deviceName = e.getDevice() != null ? e.getDevice().getDeviceName() : null;
+
         return new SensorEventDetailResponse(
                 e.getEventId(),
                 e.getSensorType().name(),
                 e.getRiskLevel() != null ? e.getRiskLevel().name() : null,
                 e.getLatitude(),
                 e.getLongitude(),
-                e.getDetectedAt(),
+                detectedAtKst,
+                deviceId,
+                deviceName,
                 sensorId,
                 distanceMm,
                 pitch,
@@ -194,6 +212,17 @@ public class TripService {
                 imageUrl
         );
     }
+
+    /**
+     * UTC로 저장된 시간을 KST(+9)로 변환
+     */
+    private LocalDateTime convertUtcToKst(LocalDateTime utcTime) {
+        if (utcTime == null) return null;
+        return utcTime.atOffset(ZoneOffset.UTC)
+                .atZoneSameInstant(KST)
+                .toLocalDateTime();
+    }
+
     @Transactional(readOnly = true)
     public TripStartResponse getLatestTrip(Long userId) {
         Trip trip = tripRepository
