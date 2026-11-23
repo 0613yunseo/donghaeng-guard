@@ -4555,8 +4555,12 @@ fun SafeRouteSection(riskZones: List<ServerRiskZone>) {
                                 r.totalDistance?.let {
                                     RouteStat("이동 거리", if (it >= 1000) "%.1fkm".format(java.util.Locale.US, it / 1000.0) else "${it}m")
                                 }
-                                // 서버 시간이 보행 속도와 안 맞을 수 있어, 도보 4km/h(≈1.1m/s) 기준으로 거리에서 계산한다
-                                (r.totalDistance?.let { (it / 1.1).toInt() } ?: r.totalDuration)?.let {
+                                // Tmap 보행자 시간(초)을 쓴다. 차량 기준처럼 비현실적으로 빠르면(>2.5m/s≈9km/h) 도보 4km/h(≈1.1m/s)로 거리에서 계산한다.
+                                // shortcut: 서버가 보행 시간을 항상 주면 이 대체 계산은 지워도 된다.
+                                val walkSec = r.totalDuration?.takeIf { dur ->
+                                    dur > 0 && (r.totalDistance ?: 0) / dur.toDouble() <= 2.5
+                                } ?: r.totalDistance?.let { (it / 1.1).toInt() } ?: r.totalDuration
+                                walkSec?.let {
                                     RouteStat("예상 시간(도보)", if (it < 60) "1분 미만" else "약 ${(it + 30) / 60}분")
                                 }
                             }

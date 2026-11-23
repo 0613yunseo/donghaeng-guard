@@ -13,6 +13,8 @@ public class SensorEventDetailResponse {
     private Double latitude;
     private Double longitude;
     private LocalDateTime detectedAt;
+    private String deviceId;
+    private String deviceName;
 
     // 초음파용
     private Integer sensorId;
