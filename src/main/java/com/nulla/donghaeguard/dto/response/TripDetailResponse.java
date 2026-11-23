@@ -14,5 +14,7 @@ public class TripDetailResponse {
     private String status;
     private Integer eventCount;
     private String highestRiskLevel;
+    private String deviceId;
+    private String deviceName;
     private List<SensorEventDetailResponse> events;
 }
