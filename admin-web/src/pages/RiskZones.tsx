@@ -35,6 +35,7 @@ export function RiskZones() {
   const [grade, setGrade] = useState("");
   const [applied, setApplied] = useState({ grade: "" });
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [hoverId, setHoverId] = useState<string | null>(null);   // 목록·지도에서 마우스를 올린 구간
 
   const { items, loading, error } = useApiList<ZoneApiItem>("/api/risk-zones", "위험 구간");
   const ZONES: ZoneView[] = useMemo(() => items.map(z => ({
@@ -98,13 +99,17 @@ export function RiskZones() {
             }
           />
           <div className="flex-1 m-4 mt-0" style={{ minHeight: 320 }}>
-            <ZoneMap zones={filteredZones} selectedId={activeId} onSelect={selectFromMap} />
+            <ZoneMap zones={filteredZones} selectedId={activeId} hoverId={hoverId} onSelect={selectFromMap} onHover={setHoverId} />
           </div>
         </Card>
 
         {/* List panel */}
         <Card className="flex flex-col overflow-hidden">
-          <CardHead title="위험 구간 목록" sub={`${filteredZones.length}개 구간`} />
+          <CardHead
+            title="위험 구간 목록"
+            sub={activeId ? `${activeId} 선택됨` : `${filteredZones.length}개 구간 · 눌러서 지도에서 보기`}
+            right={activeId ? <OutlineBtn onClick={() => setSelectedId(null)}>전체 보기</OutlineBtn> : undefined}
+          />
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
             {error ? (
               <div role="alert" className="py-10 text-center text-xs">{error}</div>
@@ -119,17 +124,20 @@ export function RiskZones() {
                 className="p-3.5 rounded-xl cursor-pointer transition-colors"
                 style={{
                   border: z.id === activeId ? `2px solid ${gradeColor(z.grade)}` : `1px solid ${t.border}`,
-                  background: z.id === activeId ? t.cardHover : t.bgSub,
+                  borderLeft: `6px solid ${gradeColor(z.grade)}`,
+                  background: z.id === activeId ? `${gradeColor(z.grade)}22` : z.id === hoverId ? t.cardHover : t.bgSub,
+                  boxShadow: z.id === activeId ? `0 4px 14px ${gradeColor(z.grade)}55` : "none",
+                  transform: z.id === hoverId && z.id !== activeId ? "translateX(2px)" : "none",
                 }}
                 onClick={() => setSelectedId(z.id === activeId ? null : z.id)}
                 onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedId(z.id === activeId ? null : z.id); } }}
-                onMouseEnter={e => { if (z.id !== activeId) e.currentTarget.style.background = t.cardHover; }}
-                onMouseLeave={e => { if (z.id !== activeId) e.currentTarget.style.background = t.bgSub; }}>
+                onMouseEnter={() => setHoverId(z.id)}
+                onMouseLeave={() => setHoverId(null)}>
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="text-[12px] font-bold" style={{ color: t.text }}>{z.id}</span>
                   <GradeBadge g={z.grade} />
                 </div>
-                <p className="text-[11px] truncate mb-2" style={{ color: t.muted }}>{z.loc}</p>
+                <p className={`text-[11px] mb-2 ${z.id === activeId ? "" : "truncate"}`} style={{ color: t.muted }}>{z.loc}</p>
                 <div className="flex items-center gap-2 mb-2">
                   <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: t.border }}>
                     <div className="h-full rounded-full" style={{ width: `${z.score}%`, background: gradeColor(z.grade) }} />
@@ -138,6 +146,7 @@ export function RiskZones() {
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-[10px]" style={{ color: t.muted }}>{z.cnt}건 · {z.last}</span>
+                  {z.id === activeId && <span className="text-[10px] font-bold" style={{ color: gradeColor(z.grade) }}>📍 지도에서 보는 중</span>}
                 </div>
               </div>
             ))}
