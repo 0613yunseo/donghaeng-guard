@@ -5,7 +5,6 @@ import { C } from "../constants/colors";
 import { Card, CardHead, PrimaryBtn, OutlineBtn } from "../components/ui";
 import { RiskBadge } from "../components/badges/RiskBadge";
 import { useTripDetail } from "../hooks/useTripDetail";
-import { MOCK_AI_PREDICTION } from "../mocks/aiPredictionMock";
 import { imageSrc } from "../lib/imageSrc";
 import { ZoneMap } from "../components/map/ZoneMap";
 
@@ -20,7 +19,6 @@ export function EventDetail() {
     score: 0, cnt: 0, loc: "", label: `이벤트 ${e.id} · ${e.rl} · ${e.at}`,
     lat: e.lat ?? null, lng: e.lng ?? null,
   }] : []), [e]);
-  const mockAiResult = MOCK_AI_PREDICTION;
 
   if (loading || error || !e) {
     return <Card>
@@ -100,78 +98,11 @@ export function EventDetail() {
           </div>
         </Card>
       </div>
-      {/* AI analysis result - Mock data */}
+      {/* AI 분석: 실제 예측 결과는 AI 분석 페이지에서 주행 단위로 확인한다 */}
       <Card>
-        <CardHead
-          title="AI 분석 결과"
-          sub="AI 연동 테스트용 예시 데이터"
-        />
-
-        <div className="p-5 space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <p className="text-[10px] mb-2" style={{ color: C.warn }}>
-                ※ 아래 AI 분석 값은 샘플입니다 (실제 AI 결과는 AI 분석 페이지 참고)
-              </p>
-              <p
-                className="text-xs mb-1"
-                style={{ color: t.muted }}
-              >
-                AI 위험 등급
-              </p>
-              <p
-                className="text-lg font-bold"
-                style={{ color: C.warn }}
-              >
-                {mockAiResult.riskGrade}
-              </p>
-            </div>
-
-            <div>
-              <p
-                className="text-xs mb-1"
-                style={{ color: t.muted }}
-              >
-                AI 위험 점수
-              </p>
-              <p
-                className="text-lg font-bold"
-                style={{ color: t.text }}
-              >
-                {mockAiResult.riskScore}점
-              </p>
-            </div>
-          </div>
-
-          <div>
-            <p
-              className="text-xs font-semibold mb-1"
-              style={{ color: t.muted }}
-            >
-              판정 사유
-            </p>
-            <p
-              className="text-sm"
-              style={{ color: t.text }}
-            >
-              {mockAiResult.reason}
-            </p>
-          </div>
-
-          <div>
-            <p
-              className="text-xs font-semibold mb-1"
-              style={{ color: t.muted }}
-            >
-              권장 조치
-            </p>
-            <p
-              className="text-sm"
-              style={{ color: t.text }}
-            >
-              {mockAiResult.recommendedAction}
-            </p>
-          </div>
+        <CardHead title="AI 분석 결과" sub="이 주행의 TILT·CAMERA 예측 결과는 AI 분석 화면에서 확인합니다" />
+        <div className="p-5">
+          <OutlineBtn icon={Cpu} onClick={() => onNav("ai")}>AI 분석 화면으로 이동</OutlineBtn>
         </div>
       </Card>
 

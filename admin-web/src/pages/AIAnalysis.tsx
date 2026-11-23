@@ -46,7 +46,9 @@ function AiModelCard({ row }: { row: AiRow }) {
     <p className="text-xs mb-2" style={{ color: t.muted }}>예측 시각(서버 기준): {localTime(row.predictedAt)}</p>
     <p className="text-xs mb-2" style={{ color: t.muted }}>모델 버전: {row.modelVersion ?? '—'}</p>
     <p className="text-xs break-all" style={{ color: t.muted }}>측정 ID: {row.measurementId}</p>
-    {row.errorMessage && <p className="text-xs mt-3" style={{ color: C.danger }}>오류: {row.errorMessage}</p>}
+    {row.status === 'TIMEOUT'
+      ? <p className="text-xs mt-3" style={{ color: C.warn }}>AI 서버에 연결되지 않아 결과가 없습니다.</p>
+      : row.errorMessage && <p className="text-xs mt-3" style={{ color: C.danger }}>오류: {row.errorMessage}</p>}
     {row.warnings && <p className="text-xs mt-3 leading-5" style={{ color: t.muted }}>제한사항: {row.warnings.split(',').join(' · ')}</p>}
   </Card>;
 }
@@ -129,6 +131,8 @@ export function AIAnalysis() {
     {query && loading && <Card className="p-5"><p className="text-sm" style={{ color: t.muted }}>AI 결과를 불러오는 중입니다…</p></Card>}
     {query && !loading && !error && records.length === 0 && <Card className="p-5"><p className="text-sm" style={{ color: t.muted }}>해당 {query.mode === 'trip' ? '주행' : '측정'} ID에 저장된 AI 결과가 없습니다.</p></Card>}
     {query && !loading && !error && records.length > 0 && <>
+      {successCount === 0 && records.every(r => r.status === 'TIMEOUT') &&
+        <Card className="p-4"><p className="text-sm flex gap-2" style={{ color: C.warn }}><AlertCircle size={16} />AI 분석 서버에 연결되지 않아 이 주행의 AI 결과가 없습니다. 센서 저장과 규칙 기반 위험 판정은 정상 동작합니다.</p></Card>}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card className="p-5"><p className="text-xs" style={{ color: t.muted }}>조회된 AI 기록</p><p className="text-2xl font-bold mt-2" style={{ color: t.text }}>{records.length}건</p></Card>
         <Card className="p-5"><p className="text-xs" style={{ color: t.muted }}>예측 성공 (SUCCESS)</p><p className="text-2xl font-bold mt-2" style={{ color: t.text }}>{successCount}건</p></Card>
