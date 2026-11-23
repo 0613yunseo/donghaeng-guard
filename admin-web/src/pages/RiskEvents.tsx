@@ -101,6 +101,7 @@ export function RiskEvents() {
 
   // ─── 센서 목록 (드래프트 드롭다운용) ──────────────────────────
   const sensorOptions = Array.from(new Set(events.map(e => e.sensor)));
+  const deviceOptions = Array.from(new Set(events.map(e => e.dev).filter(d => d && d !== "—")));
 
   return (
     <div className="space-y-4">
@@ -134,7 +135,9 @@ export function RiskEvents() {
         {/* 디바이스 필터 */}
         <SelectInput value={draftDev} onChange={setDraftDev}>
           <option value="">디바이스 전체</option>
-          <option value="" disabled>디바이스 정보 미제공</option>
+          {deviceOptions.length === 0
+            ? <option value="" disabled>디바이스 정보 없음</option>
+            : deviceOptions.map(v => <option key={v} value={v}>{v}</option>)}
         </SelectInput>
 
         <PrimaryBtn onClick={apply}>적용</PrimaryBtn>
