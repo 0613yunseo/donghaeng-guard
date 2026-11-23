@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { AlertTriangle, ArrowLeft, ChevronRight, Navigation2, Cpu } from "lucide-react";
+import { AlertTriangle, ArrowLeft, BrainCircuit, ChevronRight, Navigation2, Cpu } from "lucide-react";
 import { useApp } from "../contexts/AppContext";
 import { C } from "../constants/colors";
 import { Card, CardHead, PrimaryBtn, OutlineBtn } from "../components/ui";
@@ -98,13 +98,6 @@ export function EventDetail() {
           </div>
         </Card>
       </div>
-      {/* AI 분석: 실제 예측 결과는 AI 분석 페이지에서 주행 단위로 확인한다 */}
-      <Card>
-        <CardHead title="AI 분석 결과" sub="이 주행의 TILT·CAMERA 예측 결과는 AI 분석 화면에서 확인합니다" />
-        <div className="p-5">
-          <OutlineBtn icon={Cpu} onClick={() => onNav("ai")}>AI 분석 화면으로 이동</OutlineBtn>
-        </div>
-      </Card>
 
       {/* Camera event details */}
       {isCamera && (
@@ -172,6 +165,7 @@ export function EventDetail() {
       <div className="flex items-center gap-3">
         <PrimaryBtn icon={Navigation2} onClick={() => onNav("trips")}>연결된 주행 보기</PrimaryBtn>
         <OutlineBtn icon={Cpu} onClick={() => onNav("devices")}>연결된 디바이스 보기</OutlineBtn>
+        <OutlineBtn icon={BrainCircuit} onClick={() => onNav("ai")}>AI 분석 보기</OutlineBtn>
         <OutlineBtn icon={ArrowLeft} onClick={() => onNav("events")}>목록으로 돌아가기</OutlineBtn>
       </div>
     </div>
