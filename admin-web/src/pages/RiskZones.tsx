@@ -34,6 +34,7 @@ export function RiskZones() {
   const { t } = useApp();
   const [grade, setGrade] = useState("");
   const [applied, setApplied] = useState({ grade: "" });
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const { items, loading, error } = useApiList<ZoneApiItem>("/api/risk-zones", "위험 구간");
   const ZONES: ZoneView[] = useMemo(() => items.map(z => ({
@@ -41,7 +42,7 @@ export function RiskZones() {
     grade: z.riskGrade ?? "LOW",
     score: z.riskScore ?? 0,
     cnt: z.zoneEventCount ?? 0,
-    last: z.updatedAt?.replace("T", " ") ?? "—",
+    last: z.updatedAt?.replace("T", " ").slice(0, 19) ?? "—",
     loc: z.reason?.trim() || (z.latitude != null && z.longitude != null
       ? `${z.latitude.toFixed(4)}, ${z.longitude.toFixed(4)}` : "위치 정보 없음"),
     lat: z.latitude,
@@ -49,6 +50,14 @@ export function RiskZones() {
   })), [items]);
 
   const filteredZones = useMemo(() => ZONES.filter(z => !applied.grade || z.grade === applied.grade), [ZONES, applied.grade]);
+
+  // 선택한 구간이 필터로 사라지면 선택을 풀어 준다
+  const activeId = filteredZones.some(z => z.id === selectedId) ? selectedId : null;
+  // 마커를 누르면 목록의 해당 항목을 선택하고 보이는 위치로 스크롤한다
+  const selectFromMap = (id: string) => {
+    setSelectedId(id);
+    document.getElementById(`zone-item-${id}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  };
 
   const apply = () => {
     setApplied({ grade });
@@ -89,7 +98,7 @@ export function RiskZones() {
             }
           />
           <div className="flex-1 m-4 mt-0" style={{ minHeight: 320 }}>
-            <ZoneMap zones={filteredZones} />
+            <ZoneMap zones={filteredZones} selectedId={activeId} onSelect={selectFromMap} />
           </div>
         </Card>
 
@@ -105,10 +114,17 @@ export function RiskZones() {
               <div className="py-10 text-center text-xs" style={{ color: t.muted }}>조건에 맞는 구간이 없습니다.</div>
             ) : filteredZones.map(z => (
               <div key={z.id}
+                id={`zone-item-${z.id}`}
+                role="button" tabIndex={0} aria-pressed={z.id === activeId}
                 className="p-3.5 rounded-xl cursor-pointer transition-colors"
-                style={{ border: `1px solid ${t.border}`, background: t.bgSub }}
-                onMouseEnter={e => (e.currentTarget.style.background = t.cardHover)}
-                onMouseLeave={e => (e.currentTarget.style.background = t.bgSub)}>
+                style={{
+                  border: z.id === activeId ? `2px solid ${gradeColor(z.grade)}` : `1px solid ${t.border}`,
+                  background: z.id === activeId ? t.cardHover : t.bgSub,
+                }}
+                onClick={() => setSelectedId(z.id === activeId ? null : z.id)}
+                onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedId(z.id === activeId ? null : z.id); } }}
+                onMouseEnter={e => { if (z.id !== activeId) e.currentTarget.style.background = t.cardHover; }}
+                onMouseLeave={e => { if (z.id !== activeId) e.currentTarget.style.background = t.bgSub; }}>
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="text-[12px] font-bold" style={{ color: t.text }}>{z.id}</span>
                   <GradeBadge g={z.grade} />
