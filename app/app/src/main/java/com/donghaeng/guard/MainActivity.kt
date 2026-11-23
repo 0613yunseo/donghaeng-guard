@@ -167,6 +167,13 @@ object UiPrefs {
     fun saveContrast(v: String)  { contrast = v;    sp?.edit()?.putString("contrast", v)?.apply() }
     fun saveColorMode(v: String) { colorMode = v;   sp?.edit()?.putString("colorMode", v)?.apply() }
 
+    // 서버에 닿지 않아 보내지 못한 주행 종료. 서버가 다시 켜지면 앱이 자동으로 다시 보낸다. 형식: "tripId|endedAt"
+    fun savePendingEnd(tripId: Long, endedAt: String) { sp?.edit()?.putString("pendingEnd", "$tripId|$endedAt")?.apply() }
+    fun clearPendingEnd() { sp?.edit()?.remove("pendingEnd")?.apply() }
+    fun pendingEnd(): Pair<Long, String>? =
+        sp?.getString("pendingEnd", null)?.split("|")?.takeIf { it.size == 2 }
+            ?.let { (id, at) -> id.toLongOrNull()?.let { it to at } }
+
     /** 시스템 글씨 크기에 곱하는 배율 */
     val fontScale: Float get() = when (fontSize) { "small" -> 0.9f; "large" -> 1.2f; else -> 1f }
     val highContrast: Boolean get() = contrast == "high"
@@ -678,34 +685,6 @@ suspend fun fetchRiskZones(): List<ServerRiskZone> {
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// Mock 데이터
-// ══════════════════════════════════════════════════════════════════════
-val mockTrips = listOf(
-    TripRecord("1", "2026년 5월 28일", "14:30 - 15:45", "1시간 15분", 3, 8, RiskLevel.DANGER),
-    TripRecord("2", "2026년 5월 27일", "10:20 - 11:05", "45분",       1, 4, RiskLevel.DANGER),
-    TripRecord("3", "2026년 5월 26일", "16:00 - 16:30", "30분",       0, 2, RiskLevel.WARNING),
-    TripRecord("4", "2026년 5월 25일", "09:00 - 09:40", "40분",       0, 0, RiskLevel.SAFE),
-)
-
-val mockTripDetail = TripDetail(
-    id = "1", date = "2026년 5월 28일", startTime = "14:30",
-    endTime = "15:45", duration = "1시간 15분",
-    events = listOf(
-        RiskEvent("1", "14:35", RiskLevel.WARNING, 450,  "서울시 강남구 역삼동 테헤란로 231",      37.5012, 127.0396),
-        RiskEvent("2", "14:52", RiskLevel.DANGER,  180,  "서울시 강남구 삼성동 코엑스몰 앞",       37.5115, 127.0595),
-        RiskEvent("3", "15:10", RiskLevel.WARNING, 420,  "서울시 강남구 대치동 은마아파트 사거리", 37.4947, 127.0630),
-        RiskEvent("4", "15:25", RiskLevel.DANGER,  150,  "서울시 강남구 도곡동 매봉역 2번 출구",   37.5015, 127.0544),
-    )
-)
-
-val mockRiskZones = listOf(
-    RiskZone("1", "역삼역 사거리",      "서울시 강남구 역삼동 테헤란로 231",   "HIGH",   85, 12, "급경사 및 단차 발생 빈도 높음. 보도 경사가 심하고 턱이 많아 주의가 필요합니다.",     37.5012, 127.0396),
-    RiskZone("2", "삼성역 2번 출구",    "서울시 강남구 삼성동 봉은사로 524",   "MEDIUM", 62,  7, "보도 폭이 좁고 장애물 다수. 유동인구가 많아 주의가 필요합니다.",                   37.5115, 127.0595),
-    RiskZone("3", "대치동 은행사거리",  "서울시 강남구 대치동 선릉로 428",     "MEDIUM", 58,  5, "횡단보도 진입 시 턱 높이가 불규칙하여 주의가 필요합니다.",                         37.4947, 127.0630),
-    RiskZone("4", "도곡동 매봉역 앞",   "서울시 강남구 도곡동 남부순환로 2947","LOW",    38,  3, "일부 구간에서 경사 감지. 대체로 안전한 편입니다.",                                 37.5015, 127.0544),
-)
-
-// ══════════════════════════════════════════════════════════════════════
 // MainActivity
 // ══════════════════════════════════════════════════════════════════════
 class MainActivity : ComponentActivity() {
@@ -971,12 +950,19 @@ suspend fun startTrip(deviceId: String): Long? {
     }
 }
 
-suspend fun endTrip(tripId: Long): Boolean {
+/** 서버에 연결하지 못한 경우(네트워크·시간 초과)는 알아보기 쉬운 문구로 바꾼다. */
+fun friendlyError(e: Exception, fallback: String): String =
+    if (e is java.io.IOException) "서버에 연결할 수 없어요. 잠시 후 다시 시도해 주세요." else e.message ?: fallback
+
+/** 주행 종료 요청. 결과는 HTTP 코드이고, 서버에 연결하지 못하면 -1. endedAt은 종료를 누른 시각(재전송해도 유지). */
+suspend fun endTripCode(tripId: Long, endedAt: LocalDateTime): Int {
     return withContext(Dispatchers.IO) {
         val url = java.net.URL("$API_BASE_URL/api/trips/$tripId/end")
         val connection = url.openConnection() as java.net.HttpURLConnection
 
         try {
+            connection.connectTimeout = 5000
+            connection.readTimeout = 10000
             connection.requestMethod = "PATCH"
             connection.setRequestProperty("Content-Type", "application/json")
             connection.setRequestProperty("Accept", "application/json")
@@ -984,7 +970,7 @@ suspend fun endTrip(tripId: Long): Boolean {
 
             val body = """
                 {
-                  "endedAt": "${LocalDateTime.now().withNano(0)}",
+                  "endedAt": "$endedAt",
                   "pendingEventCount": 0
                 }
             """.trimIndent()
@@ -1013,10 +999,10 @@ suspend fun endTrip(tripId: Long): Boolean {
                 "tripId=$tripId, HTTP=$code, response=$responseBody"
             )
 
-            code in 200..299
+            code
         } catch (e: Exception) {
             android.util.Log.e("TRIP_END", "tripId=$tripId 종료 요청 실패", e)
-            false
+            -1
         } finally {
             connection.disconnect()
         }
@@ -1042,59 +1028,6 @@ suspend fun postTripLocation(tripId: Long, latitude: Double, longitude: Double) 
             } finally {
                 connection.disconnect()
             }
-        }
-    }
-}
-
-suspend fun sendMockSensorEvent(
-    tripId: Long,
-    deviceId: String,
-    riskLevel: RiskLevel,
-    distanceMm: Int,
-    latitude: Double,
-    longitude: Double
-): String {
-    return withContext(Dispatchers.IO) {
-        val url = java.net.URL("$API_BASE_URL/api/sensor-events")
-        val connection = url.openConnection() as java.net.HttpURLConnection
-
-        try {
-            connection.requestMethod = "POST"
-            connection.setRequestProperty("Content-Type", "application/json")
-            connection.setRequestProperty("Accept", "application/json")
-            connection.doOutput = true
-
-            val body = """
-                {
-                  "tripId": $tripId,
-                  "deviceId": "$deviceId",
-                  "sensorType": "ULTRASONIC",
-                  "riskLevel": "${riskLevel.name}",
-                  "latitude": $latitude,
-                  "longitude": $longitude,
-                  "detectedAt": "${LocalDateTime.now().withNano(0)}",
-                  "sensorId": 1,
-                  "distanceMm": $distanceMm
-                }
-            """.trimIndent()
-
-            java.io.OutputStreamWriter(connection.outputStream).use { writer ->
-                writer.write(body)
-                writer.flush()
-            }
-
-            val statusCode = connection.responseCode
-
-            if (statusCode in 200..299) {
-                "전송 성공: HTTP $statusCode"
-            } else {
-                val errorBody = connection.errorStream?.bufferedReader()?.readText()
-                "전송 실패: HTTP $statusCode / $errorBody"
-            }
-        } catch (e: Exception) {
-            "전송 실패: ${e.message}"
-        } finally {
-            connection.disconnect()
         }
     }
 }
@@ -1142,6 +1075,21 @@ fun DongHaengGuardApp() {
 
     val context = LocalContext.current
     UiPrefs.init(context)
+
+    // 서버에 닿지 않아 보류해 둔 주행 종료를 10초마다 다시 보낸다(서버가 켜지면 성공 → 센서도 따라 멈춘다)
+    LaunchedEffect(Unit) {
+        while (true) {
+            UiPrefs.pendingEnd()?.let { (tripId, endedAt) ->
+                val code = endTripCode(tripId, LocalDateTime.parse(endedAt))
+                // 성공이거나 서버가 거절(4xx: 이미 종료 등)하면 더 보낼 필요가 없다
+                if (code in 200..499) {
+                    UiPrefs.clearPendingEnd()
+                    if (code in 200..299) Toast.makeText(context, "보류했던 주행 종료를 서버에 전송했어요.", Toast.LENGTH_SHORT).show()
+                }
+            }
+            delay(10_000)
+        }
+    }
 
     // 앱을 켜면 위치 권한을 한 번 요청한다(이미 허용돼 있으면 팝업 없음)
     val startPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
@@ -1638,7 +1586,7 @@ fun SensorConnectionScreen(
                 devices = result
                 status = ConnStatus.FOUND
             } catch (e: Exception) {
-                errorMessage = e.message ?: "디바이스 조회에 실패했습니다."
+                errorMessage = friendlyError(e, "디바이스 조회에 실패했습니다.")
                 status = ConnStatus.FAILED
             }
         }
@@ -1819,7 +1767,7 @@ fun SensorManagementScreen(onNavigate: (Screen) -> Unit) {
         try {
             devices = fetchRegisteredDevices()
         } catch (e: Exception) {
-            errorMessage = e.message ?: "센서 정보를 불러오지 못했습니다."
+            errorMessage = friendlyError(e, "센서 정보를 불러오지 못했습니다.")
         } finally {
             loading = false
         }
@@ -2072,6 +2020,7 @@ fun MainDrivingScreen(
         }
     }
     var showEndDialog by remember { mutableStateOf(false) }
+    var ending by remember { mutableStateOf(false) }   // 종료 요청 중(재시도 포함)
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -2177,6 +2126,7 @@ fun MainDrivingScreen(
             },
             confirmButton = {
                 TextButton(
+                    enabled = !ending,
                     onClick = {
                         scope.launch {
                             val tripId = currentTripId
@@ -2193,9 +2143,27 @@ fun MainDrivingScreen(
                                 return@launch
                             }
 
-                            val success = endTrip(tripId)
+                            // 서버가 끊겨 있어도 종료할 수 있게: 연결 실패·서버 오류는 최대 3번 재시도하고,
+                            // 그래도 안 되면 종료를 보류로 저장해 두었다가 서버가 켜지면 자동 전송한다.
+                            ending = true
+                            val endedAt = LocalDateTime.now().withNano(0)
+                            var code = endTripCode(tripId, endedAt)
+                            var attempt = 1
+                            while ((code == -1 || code >= 500) && attempt < 3) {
+                                delay(1000L * attempt)
+                                code = endTripCode(tripId, endedAt)
+                                attempt++
+                            }
+                            ending = false
 
-                            if (!success) {
+                            if (code == -1 || code >= 500) {
+                                UiPrefs.savePendingEnd(tripId, endedAt.toString())
+                                Toast.makeText(
+                                    context,
+                                    "서버에 연결할 수 없어 종료를 보류했어요. 연결되면 자동으로 전송됩니다.",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            } else if (code !in 200..299) {
                                 Toast.makeText(
                                     context,
                                     "주행 종료 저장에 실패했습니다.",
@@ -2214,7 +2182,7 @@ fun MainDrivingScreen(
                     }
                 ) {
                     Text(
-                        "종료",
+                        if (ending) "종료 중..." else "종료",
                         color = AppColors.Danger,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -2572,6 +2540,8 @@ fun MainDrivingScreen(
                                         "AI 분석 정보를 불러오지 못했어요."
                                     aiPredictions.isEmpty() ->
                                         "아직 AI 분석 결과가 없어요."
+                                    aiPredictions.all { it.status == "TIMEOUT" } ->
+                                        "AI 분석 서버에 연결되지 않아 지금은 결과를 볼 수 없어요. 위험 판정은 센서 규칙으로 계속 동작해요."
                                     else ->
                                         "최근 수집된 센서 데이터를 기반으로 분석한 결과예요."
                                 },
@@ -2780,7 +2750,7 @@ fun TripEndScreen(
         try {
             summary = fetchTripEndSummary(tripId)
         } catch (e: Exception) {
-            errorMessage = e.message ?: "주행 리포트를 불러오지 못했습니다."
+            errorMessage = friendlyError(e, "주행 리포트를 불러오지 못했습니다.")
         } finally {
             isLoading = false
         }
@@ -2994,7 +2964,9 @@ fun TripEndScreen(
                     else -> {
                         if (successfulAiResults.isEmpty()) {
                             Text(
-                                "이번 주행의 AI 분석 결과가 아직 없습니다.",
+                                if (aiResults.isNotEmpty() && aiResults.all { it.status == "TIMEOUT" })
+                                    "AI 분석 서버에 연결되지 않아 이번 주행의 AI 결과가 없어요. 위험 판정은 센서 규칙으로 정상 동작했어요."
+                                else "이번 주행의 AI 분석 결과가 아직 없습니다.",
                                 fontSize = 13.sp,
                                 color = AppColors.TextSub
                             )
@@ -3213,7 +3185,7 @@ fun DrivingHistoryScreen(onNavigate: (Screen) -> Unit) {
         try {
             trips = fetchTripHistory()
         } catch (e: Exception) {
-            errorMessage = e.message ?: "주행 기록을 불러오지 못했습니다."
+            errorMessage = friendlyError(e, "주행 기록을 불러오지 못했습니다.")
         } finally {
             isLoading = false
         }
@@ -3763,7 +3735,7 @@ fun RiskZonesScreen(onNavigate: (Screen) -> Unit) {
         try {
             riskZones = fetchRiskZones()
         } catch (e: Exception) {
-            errorMessage = e.message ?: "위험 구간을 불러오지 못했습니다."
+            errorMessage = friendlyError(e, "위험 구간을 불러오지 못했습니다.")
         } finally {
             loading = false
         }
