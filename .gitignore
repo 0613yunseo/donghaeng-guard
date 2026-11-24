@@ -7,3 +7,21 @@ app/build/
 app/app/build/
 *.log
 hs_err_pid*
+
+개인 테스트 사진
+
+sensor/camara/connection/webcam_test/captures/
+
+개인 영상 파일
+
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.wmv
+
+API 인증키
+
+.env
+.env.*
+!.env.example
