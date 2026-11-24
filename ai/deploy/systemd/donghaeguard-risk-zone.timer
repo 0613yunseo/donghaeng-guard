@@ -1,0 +1,10 @@
+[Unit]
+Description=DonghaengGuard Risk Zone Hourly Update Timer
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+Unit=donghaeguard-risk-zone.service
+
+[Install]
+WantedBy=timers.target

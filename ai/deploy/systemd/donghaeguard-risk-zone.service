@@ -1,0 +1,16 @@
+[Unit]
+Description=DonghaengGuard Risk Zone Auto Update
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/ai-server
+ExecStart=/usr/bin/flock -n -E 75 /tmp/donghaeguard-risk-zone.lock /home/ubuntu/ai-server/venv/bin/python /home/ubuntu/ai-server/risk_zone_analyzer.py --auto
+TimeoutStartSec=180
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
