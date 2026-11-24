@@ -3723,9 +3723,6 @@ fun RiskZonesScreen(onNavigate: (Screen) -> Unit) {
     }
     var loading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    var selectedZoneId by remember { mutableStateOf<Long?>(null) }
-    var showZoneMap by remember { mutableStateOf(false) }
-    var routeMode by remember { mutableStateOf(false) }
     var reloadKey by remember { mutableStateOf(0) }
 
     LaunchedEffect(reloadKey) {
@@ -3762,230 +3759,22 @@ fun RiskZonesScreen(onNavigate: (Screen) -> Unit) {
                     fontWeight = FontWeight.SemiBold,
                     color = AppColors.Text
                 )
-
-                if (!routeMode) {
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = "주행 데이터를 기반으로 확인된 위험 구간입니다.",
-                        fontSize = 12.sp,
-                        color = AppColors.TextSub
-                    )
-                }
-
-                Spacer(Modifier.height(10.dp))
-
-                SegmentedToggle(
-                    options = listOf("위험구간 보기", "경로 위험도 안내"),
-                    selected = if (routeMode) 1 else 0,
-                    onSelect = { routeMode = it == 1 },
-                    modifier = Modifier.fillMaxWidth()
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "위험 구간을 지도에서 확인하고, 가려는 경로의 위험도를 확인해요.",
+                    fontSize = 12.sp,
+                    color = AppColors.TextSub
                 )
             }
         }
 
-        if (routeMode) {
-            SafeRouteSection(riskZones = riskZones)
-            return@Column
-        }
-
-        when {
-            loading -> {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        CircularProgressIndicator(
-                            color = AppColors.Primary
-                        )
-
-                        Spacer(Modifier.height(12.dp))
-
-                        Text(
-                            "위험 구간을 불러오는 중...",
-                            fontSize = 13.sp,
-                            color = AppColors.TextSub
-                        )
-                    }
-                }
-            }
-
-            errorMessage != null -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = "위험 구간 정보를 불러오지 못했어요.\n${errorMessage}",
-                            fontSize = 13.sp,
-                            color = AppColors.TextSub,
-                            textAlign = TextAlign.Center
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        OutlinedButton(onClick = { reloadKey++ }) { Text("다시 시도") }
-                    }
-                }
-            }
-
-            riskZones.isEmpty() -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            "아직 등록된 위험 구간이 없어요.",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = AppColors.Text
-                        )
-
-                        Spacer(Modifier.height(8.dp))
-
-                        Text(
-                            "위험 구간이 등록되면 이곳에 표시됩니다.",
-                            fontSize = 12.sp,
-                            color = AppColors.TextSub,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                }
-            }
-
-            else -> {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    SegmentedToggle(
-                        options = listOf("목록", "지도"),
-                        selected = if (showZoneMap) 1 else 0,
-                        onSelect = { showZoneMap = it == 1 },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)
-                    )
-
-                    if (showZoneMap) {
-                        val zoneMarkers = riskZones.mapNotNull { z ->
-                            val lat = z.latitude
-                            val lng = z.longitude
-                            if (lat == null || lng == null) null
-                            else GeoMarker("${z.zoneId}", lat, lng, "위험 구간 #${z.zoneId}", gradeFg(z.riskGrade))
-                        }
-                        val selectedZone = riskZones.find { it.zoneId == selectedZoneId }
-
-                        if (zoneMarkers.isEmpty()) {
-                            Text(
-                                "좌표가 있는 위험 구간이 없습니다.",
-                                fontSize = 13.sp, color = AppColors.TextSub,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.fillMaxWidth().padding(24.dp)
-                            )
-                        } else {
-                            // 지도를 남은 화면 전체에 두고, 선택한 구간의 상세 카드를 지도 위에 겹쳐 표시한다
-                            Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                                OsmMapView(
-                                    markers = zoneMarkers,
-                                    modifier = Modifier.fillMaxSize(),
-                                    onMarkerClick = { id -> selectedZoneId = id.toLongOrNull() }
-                                )
-                                selectedZone?.let { z ->
-                                    Card(
-                                        modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp),
-                                        colors = CardDefaults.cardColors(containerColor = AppColors.Card),
-                                        shape = RoundedCornerShape(12.dp),
-                                        elevation = CardDefaults.cardElevation(4.dp)
-                                    ) {
-                                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Text(
-                                                    "위험 구간 #${z.zoneId}",
-                                                    fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-                                                    color = AppColors.Text, modifier = Modifier.weight(1f)
-                                                )
-                                                GradePill(z.riskGrade)
-                                            }
-                                            Text(
-                                                "위험 점수 ${z.riskScore?.toString() ?: "정보 없음"} · 위험 발생 ${z.zoneEventCount?.toString() ?: "정보 없음"}회",
-                                                fontSize = 12.sp, color = AppColors.TextSub
-                                            )
-                                            Text(
-                                                z.reason?.takeIf { it.isNotBlank() } ?: "상세 분석 정보가 없습니다.",
-                                                fontSize = 12.sp, color = AppColors.Text
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            items(riskZones.sortedByDescending { it.riskScore ?: -1 }) { zone ->
-                                val expanded = selectedZoneId == zone.zoneId
-
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { selectedZoneId = if (expanded) null else zone.zoneId },
-                                    colors = CardDefaults.cardColors(containerColor = AppColors.Card),
-                                    shape = RoundedCornerShape(12.dp),
-                                    elevation = CardDefaults.cardElevation(1.dp)
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(16.dp),
-                                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text(
-                                                text = "위험 구간 #${zone.zoneId}",
-                                                fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-                                                color = AppColors.Text, modifier = Modifier.weight(1f)
-                                            )
-                                            GradePill(zone.riskGrade)
-                                        }
-
-                                        Text(
-                                            text = "위험 점수 ${zone.riskScore?.toString() ?: "정보 없음"} · 위험 발생 ${zone.zoneEventCount?.toString() ?: "정보 없음"}회",
-                                            fontSize = 12.sp,
-                                            color = AppColors.TextSub
-                                        )
-
-                                        if (expanded) {
-                                            HDivider()
-
-                                            Text(
-                                                text = zone.reason?.takeIf { it.isNotBlank() } ?: "상세 분석 정보가 없습니다.",
-                                                fontSize = 12.sp,
-                                                color = AppColors.Text
-                                            )
-
-                                            Text(
-                                                text = if (zone.latitude != null && zone.longitude != null) {
-                                                    "좌표: %.4f, %.4f".format(java.util.Locale.US, zone.latitude, zone.longitude)
-                                                } else {
-                                                    "위치 정보 없음"
-                                                },
-                                                fontSize = 11.sp,
-                                                color = AppColors.TextSub
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        // 위험구간 지도와 경로 위험도 안내를 한 화면에서 쓴다 (지도가 중심, 목록·경로 결과는 아래 시트)
+        SafeRouteSection(
+            riskZones = riskZones,
+            zonesLoading = loading,
+            zonesError = errorMessage,
+            onRetryZones = { reloadKey++ }
+        )
     }
 }
 
@@ -4113,7 +3902,9 @@ fun OsmMapView(
     onMapTap: ((Double, Double) -> Unit)? = null,
     // null: 마커·경로가 바뀔 때마다 전체가 보이도록 맞춘다. 값이 있으면 그 점들이 바뀔 때만 맞춘다(비어 있으면 defaultCenter)
     fitPoints: List<Pair<Double, Double>>? = null,
-    defaultCenter: Pair<Double, Double> = DEFAULT_MAP_CENTER
+    defaultCenter: Pair<Double, Double> = DEFAULT_MAP_CENTER,
+    // 아래 시트가 지도를 가리는 높이(dp). 점 하나로 이동할 때 그 점이 시트 위에 보이도록 중심을 위로 올린다
+    bottomInsetDp: Int = 0
 ) {
     val currentOnClick by rememberUpdatedState(onMarkerClick)
     val currentOnTap by rememberUpdatedState(onMapTap)
@@ -4205,16 +3996,23 @@ fun OsmMapView(
                 } else if (target.size == 1) {
                     map.controller.setZoom(16.0)
                     map.controller.setCenter(target[0])
+                    if (bottomInsetDp > 0) map.post { map.scrollBy(0, (bottomInsetDp * map.resources.displayMetrics.density / 2).toInt()) }
                 } else {
                     val box = org.osmdroid.util.BoundingBox.fromGeoPoints(target)
                     if (linePoints.size >= 2) {
-                        // 경로가 있을 때는 위쪽 선택 카드와 아래쪽 결과 시트에 가려지지 않도록 범위를 위아래로 넓혀 맞춘다
-                        val span = box.latitudeSpan
+                        // 경로가 있을 때는 위쪽 선택 카드와 아래쪽 결과 시트에 가려지지 않도록,
+                        // 가려지는 높이만큼 위·아래로 범위를 넓혀 경로가 보이는 영역 안에 들어오게 맞춘다
+                        val d = map.resources.displayMetrics.density
+                        val total = map.height.toDouble().coerceAtLeast(1.0)
+                        val top = 110 * d
+                        val bottom = bottomInsetDp * d
+                        val visible = (total - top - bottom).coerceAtLeast(total * 0.3)
+                        val span = box.latitudeSpan.coerceAtLeast(0.0005)
                         val padded = org.osmdroid.util.BoundingBox(
-                            box.latNorth + span * 0.10, box.lonEast,
-                            box.latSouth - span * 0.70, box.lonWest
+                            box.latNorth + span * top / visible, box.lonEast,
+                            box.latSouth - span * bottom / visible, box.lonWest
                         )
-                        map.zoomToBoundingBox(padded, false, 60)
+                        map.zoomToBoundingBox(padded, false, 40)
                     } else {
                         map.zoomToBoundingBox(box, false, 80)
                     }
@@ -4229,9 +4027,16 @@ fun OsmMapView(
 
 // 경로 위험도 안내: 출발지·목적지를 정하면 POST /api/routes/recommend로 경로와 주변 위험구간 정보를 받아 표시한다.
 @Composable
-fun SafeRouteSection(riskZones: List<ServerRiskZone>) {
+fun SafeRouteSection(
+    riskZones: List<ServerRiskZone>,
+    zonesLoading: Boolean = false,
+    zonesError: String? = null,
+    onRetryZones: () -> Unit = {}
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var selectedZoneId by remember { mutableStateOf<Long?>(null) }   // 지도·목록에서 고른 위험구간
+    var listOpen by remember { mutableStateOf(false) }               // 위험구간 목록 펼침
     var start by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var destination by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var picking by remember { mutableStateOf<String?>(null) } // "start" | "destination" | null
@@ -4244,7 +4049,7 @@ fun SafeRouteSection(riskZones: List<ServerRiskZone>) {
     var route by remember { mutableStateOf<SafeRoute?>(null) }
     var routeError by remember { mutableStateOf<RouteOutcome.Failure?>(null) }
     var requestSeq by remember { mutableStateOf(0) } // 출발지·목적지가 바뀌면 늦게 도착한 이전 응답을 버리기 위한 번호
-    var controlsOpen by remember { mutableStateOf(true) } // 결과가 나오면 입력 영역을 접어 지도를 넓게 쓴다
+    var controlsOpen by remember { mutableStateOf(false) } // 평소엔 한 줄로 접어 두고, 결과가 나오면 접어 지도를 넓게 쓴다
 
     fun resetRoute() {
         requestSeq++
@@ -4270,6 +4075,10 @@ fun SafeRouteSection(riskZones: List<ServerRiskZone>) {
                 is RouteOutcome.Success -> {
                     route = outcome.route
                     controlsOpen = false
+                    // 경로 결과를 볼 때는 지도를 가리지 않도록 위험구간 카드·목록을 접는다
+                    selectedZoneId = null
+                    listOpen = false
+                    sheetOpen = true
                 }
                 is RouteOutcome.Failure -> routeError = outcome
             }
@@ -4326,7 +4135,8 @@ fun SafeRouteSection(riskZones: List<ServerRiskZone>) {
                     "LOW" -> AppColors.Safe
                     else -> AppColors.TextSub
                 }
-                add(GeoMarker("zone-${z.zoneId}", lat, lng, "위험 구간 #${z.zoneId}", c.copy(alpha = 0.5f)))
+                // 경로를 보는 중에는 경로와 상관없는 구간을 흐리게, 평소에는 또렷하게 표시한다
+                add(GeoMarker("zone-${z.zoneId}", lat, lng, "위험 구간 #${z.zoneId}", c.copy(alpha = if (currentRoute != null) 0.5f else 1f)))
             }
         }
         // 경로 주변 위험구간은 진하게 표시
@@ -4348,7 +4158,9 @@ fun SafeRouteSection(riskZones: List<ServerRiskZone>) {
     }
 
     // 지도 시점: 경로가 있으면 경로 전체, 현재 위치 선택 시 그 위치, 아니면 위험구간 전체, 없으면 기본 위치
+    val selectedZone = riskZones.find { it.zoneId == selectedZoneId }
     val fitPoints = currentRoute?.path
+        ?: selectedZone?.let { z -> z.latitude?.let { lat -> z.longitude?.let { lng -> listOf(lat to lng) } } }
         ?: focus?.let { listOf(it) }
         ?: riskZones.mapNotNull { z -> z.latitude?.let { lat -> z.longitude?.let { lng -> lat to lng } } }
 
@@ -4358,10 +4170,22 @@ fun SafeRouteSection(riskZones: List<ServerRiskZone>) {
             markers = markers,
             modifier = Modifier.fillMaxSize(),
             // 선택 모드에서 위험구간 마커를 눌러도 그 위치를 선택할 수 있다
-            onMarkerClick = { id -> markers.find { it.id == id }?.let { m -> if (picking != null) assign(m.lat, m.lng) } },
+            // 위치 선택 중이면 그 위치를 선택하고, 아니면 눌러 본 위험구간의 상세를 시트에 보여 준다
+            onMarkerClick = { id ->
+                markers.find { it.id == id }?.let { m ->
+                    if (picking != null) assign(m.lat, m.lng)
+                    else { selectedZoneId = id.substringAfterLast("-").toLongOrNull(); sheetOpen = false }
+                }
+            },
             onMapTap = { lat, lng -> assign(lat, lng) },
             polyline = currentRoute?.path ?: emptyList(),
-            fitPoints = fitPoints
+            fitPoints = fitPoints,
+            bottomInsetDp = when {
+                currentRoute != null && sheetOpen -> if (currentRoute.riskZones.isEmpty()) 300 else 370   // 경로 결과 시트가 펼쳐진 상태(위험구간 카드가 있으면 더 높다)
+                currentRoute != null -> 130
+                selectedZone != null -> 240
+                else -> 0
+            }
         )
 
         // ── 위: 출발지·목적지 선택 카드 ──
@@ -4375,16 +4199,27 @@ fun SafeRouteSection(riskZones: List<ServerRiskZone>) {
                 shape = RoundedCornerShape(12.dp),
                 elevation = CardDefaults.cardElevation(4.dp)
             ) {
-                if (!controlsOpen && start != null && destination != null) {
+                if (!controlsOpen && picking == null) {
+                    // 평소에는 한 줄로 접어 두어 지도를 넓게 쓴다. 누르면 출발지·목적지 입력이 열린다.
+                    val ready = start != null && destination != null
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp),
+                        modifier = Modifier.fillMaxWidth().clickable { controlsOpen = true }.padding(start = 16.dp, end = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("출발지 → 목적지 선택됨", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text, modifier = Modifier.weight(1f))
-                        LinkText("수정") { controlsOpen = true }
+                        Text(
+                            if (ready) "출발지 → 목적지 선택됨" else "가려는 경로의 위험도 확인하기",
+                            fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text,
+                            modifier = Modifier.weight(1f)
+                        )
+                        LinkText(if (ready) "수정" else "입력") { controlsOpen = true }
                     }
                 } else {
                     Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                        if (picking == null) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                LinkText("접기") { controlsOpen = false }
+                            }
+                        }
                         RoutePointRow(
                             dot = AppColors.Primary, label = "출발지",
                             value = start?.let { formatPoint(it) },
@@ -4510,7 +4345,7 @@ fun SafeRouteSection(riskZones: List<ServerRiskZone>) {
                 }
                 currentRoute?.takeIf { sheetOpen }?.let { r ->
                     Column(
-                        modifier = Modifier.heightIn(max = 230.dp).verticalScroll(rememberScrollState()),
+                        modifier = Modifier.heightIn(max = if (listOpen || selectedZone != null) 150.dp else 230.dp).verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -4563,6 +4398,81 @@ fun SafeRouteSection(riskZones: List<ServerRiskZone>) {
                                         Text(it, fontSize = 11.sp, color = AppColors.TextSub)
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+
+                // ── 위험구간: 지도에서 고른 구간의 상세 + 전체 목록(접었다 펼침) ──
+                if (currentRoute != null) HDivider()
+                selectedZone?.let { z ->
+                    Column(
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(AppColors.Surface).padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "위험 구간 #${z.zoneId}", fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                                color = AppColors.Text, modifier = Modifier.weight(1f)
+                            )
+                            GradePill(z.riskGrade)
+                            LinkText("✕") { selectedZoneId = null }
+                        }
+                        Text(
+                            "위험 점수 ${z.riskScore?.toString() ?: "정보 없음"} · 위험 발생 ${z.zoneEventCount?.toString() ?: "정보 없음"}회",
+                            fontSize = 12.sp, color = AppColors.TextSub
+                        )
+                        Text(
+                            z.reason?.takeIf { it.isNotBlank() } ?: "상세 분석 정보가 없습니다.",
+                            fontSize = 12.sp, color = AppColors.Text
+                        )
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth().clickable { listOpen = !listOpen }.padding(vertical = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        if (zonesLoading) "위험구간 불러오는 중..." else "위험구간 ${riskZones.size}곳",
+                        fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text
+                    )
+                    Text(if (listOpen) "▼ 목록 접기" else "▲ 목록 보기", fontSize = 12.sp, color = AppColors.Primary)
+                }
+                if (zonesError != null && !zonesLoading) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("위험 구간 정보를 불러오지 못했어요.", fontSize = 12.sp, color = AppColors.TextSub, modifier = Modifier.weight(1f))
+                        LinkText("다시 시도", onClick = onRetryZones)
+                    }
+                }
+                if (listOpen) {
+                    if (riskZones.isEmpty() && !zonesLoading && zonesError == null) {
+                        Text("아직 등록된 위험 구간이 없어요.", fontSize = 12.sp, color = AppColors.TextSub)
+                    }
+                    Column(
+                        modifier = Modifier.heightIn(max = 200.dp).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        riskZones.sortedByDescending { it.riskScore ?: -1 }.forEach { z ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (z.zoneId == selectedZoneId) AppColors.PrimaryBg else AppColors.Surface)
+                                    .clickable { selectedZoneId = z.zoneId; focus = null; listOpen = false; sheetOpen = false }
+                                    .padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                GradePill(z.riskGrade)
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("위험 구간 #${z.zoneId}", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = AppColors.Text)
+                                    Text(
+                                        "점수 ${z.riskScore?.toString() ?: "-"} · 발생 ${z.zoneEventCount?.toString() ?: "-"}회",
+                                        fontSize = 11.sp, color = AppColors.TextSub
+                                    )
+                                }
+                                Text("지도에서 보기", fontSize = 11.sp, color = AppColors.Primary)
                             }
                         }
                     }

@@ -47,7 +47,7 @@ export function EventDetail() {
   ];
 
   return (
-    <div className="space-y-4 max-w-5xl">
+    <div className="space-y-4">
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-xs" style={{ color: t.muted }}>
         <button onClick={() => onNav("events")} className="flex items-center gap-1 hover:opacity-70 transition-opacity">
