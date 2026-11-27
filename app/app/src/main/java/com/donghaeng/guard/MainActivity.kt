@@ -272,6 +272,42 @@ data class AiPredictionResult(
     val predictedAt: String?
 )
 
+// 서버가 생성·저장한 위험 설명문 (Groq LLM, 실패 시 규칙 기반 대체 문장)
+data class AiExplanationText(val ruleRisk: String?, val explanation: String, val source: String?)
+
+/** 해당 주행의 가장 최근 위험 설명문 1건을 가져온다. 없거나 실패하면 null. */
+suspend fun fetchLatestAiExplanation(tripId: Long): AiExplanationText? {
+    return withContext(Dispatchers.IO) {
+        val connection = java.net.URL("$API_BASE_URL/api/ai-explanations?tripId=$tripId")
+            .openConnection() as java.net.HttpURLConnection
+        try {
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("Accept", "application/json")
+            connection.connectTimeout = 5000
+            connection.readTimeout = 10000
+            if (connection.responseCode !in 200..299) return@withContext null
+            val arr = org.json.JSONArray(connection.inputStream.bufferedReader().use { it.readText() })
+            var best: org.json.JSONObject? = null
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                if (o.optString("explanation").isBlank() || o.isNull("explanation")) continue
+                if (best == null || o.optLong("id") > best.optLong("id")) best = o
+            }
+            best?.let {
+                AiExplanationText(
+                    ruleRisk = if (it.isNull("ruleRisk")) null else it.getString("ruleRisk"),
+                    explanation = it.getString("explanation"),
+                    source = if (it.isNull("source")) null else it.getString("source")
+                )
+            }
+        } catch (e: Exception) {
+            null
+        } finally {
+            connection.disconnect()
+        }
+    }
+}
+
 // 실제 AI 예측 결과 조회
 suspend fun fetchAiPredictions(tripId: Long): List<AiPredictionResult> {
     return withContext(Dispatchers.IO) {
@@ -2742,6 +2778,12 @@ fun TripEndScreen(
     var aiLoading by remember(tripId) { mutableStateOf(true) }
     var aiError by remember(tripId) { mutableStateOf(false) }
     var aiRefreshKey by remember(tripId) { mutableStateOf(0) }
+    var aiExplanation by remember(tripId) { mutableStateOf<AiExplanationText?>(null) }
+
+    // 위험 설명문은 있을 때만 보조로 표시한다(없거나 실패해도 화면은 그대로)
+    LaunchedEffect(tripId, aiRefreshKey) {
+        aiExplanation = fetchLatestAiExplanation(tripId)
+    }
 
     LaunchedEffect(tripId) {
         isLoading = true
@@ -3025,6 +3067,18 @@ fun TripEndScreen(
                             fontSize = 12.sp,
                             color = AppColors.TextSub
                         )
+
+                        aiExplanation?.let { ex ->
+                            HDivider()
+                            Text("위험 상황 설명", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Text)
+                            Text(ex.explanation, fontSize = 13.sp, color = AppColors.Text)
+                            Text(
+                                if (ex.source == "GROQ_LLM") "AI(Groq LLM)가 생성한 설명이에요."
+                                else "서버가 제공한 기본 안내 문장이에요.",
+                                fontSize = 11.sp,
+                                color = AppColors.TextSub
+                            )
+                        }
                     }
                 }
 
